@@ -485,10 +485,34 @@
       var img = a.preview ? '<img src="' + a.preview + '" alt="">' : '';
       return '<div class="att' + (img ? ' img' : '') + (a.state === 'up' ? ' up' : '') + (a.state === 'bad' ? ' bad' : '') + '" title="' + esc(a.name) + '">' +
         (img || (I.file.replace('<svg', '<svg style="width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;flex-shrink:0"') +
-        '<span class="nm">' + esc(a.name) + '</span>')) + (a.state === 'up' ? '<span class="spin2"></span>' : '') +
+        '<span class="nm">' + esc(a.name) + '</span>')) + (a.state === 'up' ? (a.pct != null ? '<span class="pct">' + a.pct + '%</span>' : '<span class="spin2"></span>') : '') +
         '<button type="button" class="x" data-unatt="' + i + '" aria-label="Убрать">×</button></div>';
     }).join('');
     setBusyUI();
+  }
+  // загрузка через XHR: видно проценты и можно понять, что связь «встала», а не ждать 3 минуты
+  function uploadOne(f, a) {
+    return new Promise(function (res, rej) {
+      var x = new XMLHttpRequest(), last = Date.now(), timer = null;
+      function fail(kind, msg) { clearInterval(timer); var e = new Error(msg || kind); e.kind = kind; rej(e); }
+      x.open('POST', API + '/api/upload');
+      x.setRequestHeader('X-Init-Data', tg ? tg.initData : '');
+      x.setRequestHeader('X-Pinggy-No-Screen', '1');
+      x.upload.onprogress = function (ev) {
+        last = Date.now();
+        if (ev.lengthComputable) { var p = Math.min(99, Math.round(ev.loaded / ev.total * 100)); if (p !== a.pct) { a.pct = p; renderAtt(); } }
+      };
+      x.onload = function () {
+        clearInterval(timer);
+        if (x.status >= 200 && x.status < 300) { try { res(JSON.parse(x.responseText)); } catch (er) { fail('http', 'странный ответ сервера'); } }
+        else fail('http', (x.responseText || ('ошибка ' + x.status)).slice(0, 120));
+      };
+      x.onerror = function () { fail('net'); };
+      timer = setInterval(function () { if (Date.now() - last > 30000) { x.abort(); fail('stall'); } }, 2000);
+      var fd = new FormData(); fd.append('file', f, f.name || 'файл');
+      a.pct = 0; renderAtt();
+      x.send(fd);
+    });
   }
   function addFiles(list) {
     Array.prototype.forEach.call(list || [], function (f) {
@@ -496,12 +520,17 @@
       if (f.size > 100 * 1024 * 1024) { toast('«' + f.name + '» больше 100 МБ'); return; }
       var a = { name: f.name || 'файл', state: 'up', preview: /^image\//.test(f.type) ? URL.createObjectURL(f) : '' };
       S.att.push(a); renderAtt();
-      var fd = new FormData(); fd.append('file', f, f.name || 'файл');
-      rawRetry('/api/upload', { method: 'POST', body: fd }, 180000).then(function (r) {
-        if (!r.ok) return r.text().then(function (t) { throw new Error(t); });
-        return r.json();
+      uploadOne(f, a).catch(function (e) {
+        // нет связи — возможно, у ноутбука сменился адрес: узнаём новый и пробуем ещё раз
+        if (e.kind !== 'net') throw e;
+        return relocate().then(function (moved) { if (!moved) throw e; a.pct = 0; renderAtt(); return uploadOne(f, a); });
       }).then(function (j) { a.id = j.id; a.state = 'ok'; renderAtt(); })
-        .catch(function (e) { a.state = 'bad'; renderAtt(); toast('Не загрузилось: ' + a.name); });
+        .catch(function (e) {
+          a.state = 'bad'; renderAtt();
+          var why = e.kind === 'stall' ? 'загрузка встала на ' + (a.pct || 0) + '% — связь телефона с ноутбуком режется. Попробуй с VPN или пришли файл боту в Telegram'
+            : e.kind === 'net' ? 'нет связи с ноутбуком' : (e.message || 'ошибка');
+          toast('Не загрузилось «' + a.name + '»: ' + why, 7000);
+        });
     });
   }
   ['#f-any', '#f-photo', '#f-cam'].forEach(function (sel) {

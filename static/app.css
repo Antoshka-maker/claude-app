@@ -229,6 +229,7 @@ a { color: var(--accent-text); text-decoration: underline; text-underline-offset
 .att.up::after { content: ''; position: absolute; inset: 0; background: rgba(0,0,0,.45); border-radius: 12px; }
 .att.up .spin2 { position: absolute; z-index: 2; left: 50%; top: 50%; width: 20px; height: 20px; margin: -10px; border-radius: 50%;
   border: 2px solid rgba(255,255,255,.35); border-top-color: #fff; animation: spin .9s linear infinite; }
+.att.up .pct { position: absolute; z-index: 2; left: 0; right: 0; top: 50%; margin-top: -9px; text-align: center; font-size: 13px; font-weight: 600; color: #fff; }
 .att.bad { border-color: var(--danger); color: var(--danger); }
 /* листы выбора */
 .opt { display: flex; align-items: center; gap: 14px; width: 100%; padding: 13px 14px; border: 0; background: transparent; border-radius: 14px;
