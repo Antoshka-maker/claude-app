@@ -459,15 +459,44 @@
     th.querySelector('.t').textContent = (S.stopping ? 'Останавливаю' : S.live ? 'Пишу' : 'Думаю') + '… ' + fmtTime((Date.now() - S.started) / 1000) +
       (last && !S.live ? ' · ' + last.replace(/^\S+\s/, '') : '');
     n.querySelector('.steps').innerHTML = S.steps.map(function (s) { return '<li>' + esc(s) + '</li>'; }).join('');
-    var md = n.querySelector('.md');
-    if (md._src !== S.live) {
-      md._src = S.live;
-      var r = MD.render(S.live);
-      md.innerHTML = r.html;
-      if (S.live) md.lastElementChild && md.lastElementChild.classList.add('cursor');
-      mountWidgets(md, r.blocks, true);
-    }
+    if (!S.live) { TW.n = 0; drawLive(n, ''); }
+    else twKick();
   }
+  // Печать «бегущими буквами»: текст приходит от ноутбука кусками, а на экран выкладываем его понемногу,
+  // догоняя примерно за секунду (не медленнее 40 знаков в секунду) — без рывков.
+  var TW = { n: 0, raf: 0, last: 0, acc: 0, drawn: 0, shown: -1, finish: null };
+  function drawLive(n, src) {
+    var md = n.querySelector('.md');
+    if (md._src === src) return;
+    md._src = src;
+    var r = MD.render(src);
+    md.innerHTML = r.html;
+    if (src) md.lastElementChild && md.lastElementChild.classList.add('cursor');
+    mountWidgets(md, r.blocks, true);
+  }
+  function twTick(ts) {
+    TW.raf = 0;
+    var n = feed.querySelector('.m-ai.live');
+    if (!S.busy || !n) return;
+    var total = S.live.length;
+    if (TW.n > total) TW.n = total;
+    var dt = TW.last ? Math.min(100, ts - TW.last) : 16; TW.last = ts;
+    var back = total - TW.n;
+    if (back > 0) {
+      TW.acc += Math.max(40, back / (TW.finish ? 0.7 : 1.0)) * dt / 1000;
+      var step = Math.floor(TW.acc); TW.acc -= step;
+      TW.n = Math.min(total, TW.n + step);
+      var c = S.live.charCodeAt(TW.n - 1);
+      if (c >= 0xD800 && c <= 0xDBFF && TW.n < total) TW.n++;            // не резать эмодзи пополам
+    }
+    if (TW.n !== TW.shown && ts - TW.drawn > (total > 12000 ? 90 : 40)) {   // перерисовка не чаще 25 раз в секунду
+      TW.drawn = ts; TW.shown = TW.n;
+      drawLive(n, S.live.slice(0, TW.n));
+    }
+    if (TW.n < total || TW.shown !== TW.n) TW.raf = requestAnimationFrame(twTick);
+    else if (TW.finish) TW.finish();
+  }
+  function twKick() { if (!TW.raf) { TW.last = 0; TW.raf = requestAnimationFrame(twTick); } }
   setInterval(function () { if (S.busy) renderLive(); }, 1000);
 
   function modelName(id) { var m = CFG.models.filter(function (x) { return x.id === id; })[0]; return m ? m.name : id; }
@@ -883,11 +912,19 @@
   }
 
   function handle(ev) {
-    if (ev.t === 'start') { S.busy = true; S.started = Date.now(); S.steps = []; S.live = ''; }
+    if (ev.t === 'start') { S.busy = true; S.started = Date.now(); S.steps = []; S.live = ''; TW.n = 0; TW.shown = -1; }
     else if (ev.t === 'queued') { S.steps.push('📥 В очереди — жду предыдущий ответ'); }
     else if (ev.t === 'step') { S.steps.push(ev.text); }
     else if (ev.t === 'delta') { S.live = ev.text; }
-    else if (ev.t === 'done') { S.busy = false; S.stopping = false; S.live = ''; S.steps = []; S.tail = Date.now() + 30000; haptic('medium'); reloadMessages(); loadChats(); }
+    else if (ev.t === 'done') {
+      var fin = function () { TW.finish = null; S.busy = false; S.stopping = false; S.live = ''; S.steps = []; S.tail = Date.now() + 30000;
+                              haptic('medium'); reloadMessages(); loadChats(); };
+      // ответ готов, а буквы ещё бегут — дадим им добежать (до 2,5 с), потом покажем готовое сообщение
+      if (S.live && ev.text && ev.text.length >= S.live.length && TW.n < ev.text.length && !S.stopping) {
+        S.live = ev.text; TW.finish = fin; twKick();
+        setTimeout(function () { if (TW.finish === fin) fin(); }, 2500);
+      } else fin();
+    }
     else if (ev.t === 'title') { if (!S.incognito) { S.title = ev.text; setTitle(); loadChats(); } }
   }
 
@@ -903,7 +940,7 @@
         var stick = nearBottom();
         (r.events || []).forEach(function (ev) { if (ev.seq > S.seq) handle(ev); });
         S.seq = Math.max(S.seq, r.seq);
-        if (S.busy && !r.busy && !(r.events || []).length) { S.busy = false; reloadMessages(); }
+        if (S.busy && !r.busy && !(r.events || []).length && !TW.finish) { S.busy = false; reloadMessages(); }
         renderLive(); setBusyUI();
         if (stick) toBottom(true);
         if (S.busy || r.busy || Date.now() < (S.tail || 0)) loop(); else S.polling = false;
