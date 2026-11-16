@@ -76,7 +76,19 @@
       return r;
     }, function (e) {
       if (!isNetErr(e) || (opts && opts.signal && opts.signal.aborted)) throw e;
-      return relocate().then(function (ch) { if (ch) return raw(path, opts, ms); throw e; });
+      // дорога до ноутбука иногда «моргает»: сначала пробуем ещё пару раз тот же адрес, потом ищем новый
+      var tries = 0;
+      function again() {
+        tries++;
+        return new Promise(function (ok) { setTimeout(ok, tries === 1 ? 1200 : 3000); })
+          .then(function () { return raw(path, opts, ms); })
+          .catch(function (e2) {
+            if (!isNetErr(e2) || (opts && opts.signal && opts.signal.aborted)) throw e2;
+            if (tries < 2) return again();
+            return relocate().then(function (ch) { if (ch) return raw(path, opts, ms); throw e2; });
+          });
+      }
+      return again();
     });
   }
   function api(path, opts, ms) {
