@@ -256,6 +256,8 @@
       });
     }
     function run() {
+      if (P.net.busy) return;                       // второй запуск поверх первого путал результаты
+      P.net.busy = true;
       out.innerHTML = ''; res = []; var q = Promise.resolve();
       sizes.forEach(function (kb) {
         q = q.then(function () { return xhr('GET', '/api/diag/down?n=' + kb * 1024, null, kb); }).then(function (r) {
@@ -270,6 +272,7 @@
         });
       });
       q.then(function () {
+        P.net.busy = false;
         line('Готово. Результат записан на ноутбуке.');
         A.post('/api/diag/report', { ua: navigator.userAgent.slice(0, 120), res: res.map(function (r) { return [r.dir, r.kb, r.ok ? 'ok' : r.st, r.ms, r.sent, Math.round(r.got / 1024)]; }) }).catch(function () {});
       });
