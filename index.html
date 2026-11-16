@@ -1,16 +1,43 @@
 <!doctype html>
-<html lang="ru">
+<html lang="ru" class="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="color-scheme" content="dark light">
 <title>Claude</title>
-<link rel="stylesheet" href="static/app.css?v=b84a0198">
+<link rel="stylesheet" href="static/app.css?v=e12ea169">
 <script src="static/telegram-web-app.js?v=2eebd494"></script>
 </head>
 <body>
-<div id="app" class="screen">
-  <div class="center muted">Загружаю…</div>
+<div id="app">
+  <aside id="drawer" aria-label="Чаты">
+    <div class="dr-head"><span class="dr-logo">Claude</span></div>
+    <nav id="chatlist"></nav>
+    <div class="dr-foot">
+      <div class="avatar" id="me-av" title="Аккаунт">?</div>
+      <button type="button" id="dr-new" class="newchat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>Новый чат</button>
+    </div>
+  </aside>
+  <div id="scrim"></div>
+  <section id="main">
+    <header id="top">
+      <button type="button" class="ib" id="b-menu" aria-label="Чаты"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M3 12h13M3 18h9"/></svg></button>
+      <div id="title"></div>
+      <button type="button" class="ib" id="b-new" aria-label="Новый чат"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4H5a1 1 0 00-1 1v14a1 1 0 001 1h14a1 1 0 001-1v-7"/><path d="M17.5 3.5a2.1 2.1 0 013 3L13 14l-4 1 1-4z"/></svg></button>
+    </header>
+    <div id="net" hidden></div>
+    <div id="feed"><div class="loading">Загружаю…</div></div>
+    <div id="composer">
+      <div class="box">
+        <textarea id="input" rows="1" placeholder="Напишите Claude" aria-label="Сообщение"></textarea>
+        <button type="button" id="b-send" class="send" aria-label="Отправить" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
+      </div>
+    </div>
+  </section>
+  <div id="viewer" hidden><img alt=""></div>
+  <div id="toast" hidden></div>
 </div>
-<script src="static/app.js?v=9a21b344"></script>
+<script src="static/md.js?v=97773727"></script>
+<script src="static/app.js?v=d8b22d6a"></script>
 </body>
 </html>
