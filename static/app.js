@@ -538,7 +538,7 @@
       var img = a.preview ? '<img src="' + a.preview + '" alt="">' : '';
       return '<div class="att' + (img ? ' img' : '') + (a.state === 'up' ? ' up' : '') + (a.state === 'bad' ? ' bad' : '') + '" title="' + esc(a.name) + '">' +
         (img || (I.file.replace('<svg', '<svg style="width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;flex-shrink:0"') +
-        '<span class="nm">' + esc(a.name) + '</span>')) + (a.state === 'up' ? (a.pct != null ? '<span class="pct">' + a.pct + '%</span>' : '<span class="spin2"></span>') : '') +
+        '<span class="nm">' + esc(a.name) + '</span>')) + (a.state === 'up' ? (a.pct != null ? '<span class="pct">' + (a.retry ? '↻' : '') + a.pct + '%</span>' : '<span class="spin2"></span>') : '') +
         '<button type="button" class="x" data-unatt="' + i + '" aria-label="Убрать">×</button></div>';
     }).join('');
     setBusyUI();
@@ -589,29 +589,50 @@
   }
   document.addEventListener('visibilitychange', function () { if (document.hidden && camClose) camClose(); });
 
-  // загрузка через XHR: видно проценты и можно понять, что связь «встала», а не ждать 3 минуты
-  function uploadOne(f, a) {
+  // Загрузка кусками по 256 КБ. По плохой мобильной связи большой запрос «встаёт», а маленький проходит;
+  // застрявший кусок отправляем заново (со 2-й попытки — через другой туннель, если этот не отвечает).
+  var CHUNK = 256 * 1024;
+  function sendChunk(upid, i, n, blob, onProg) {
     return new Promise(function (res, rej) {
       var x = new XMLHttpRequest(), last = Date.now(), timer = null;
       function fail(kind, msg) { clearInterval(timer); var e = new Error(msg || kind); e.kind = kind; rej(e); }
-      x.open('POST', API + '/api/upload');
+      x.open('POST', API + '/api/upload/chunk?id=' + upid + '&i=' + i + '&n=' + n);
       x.setRequestHeader('X-Init-Data', tg ? tg.initData : '');
       x.setRequestHeader('X-Pinggy-No-Screen', '1');
-      x.upload.onprogress = function (ev) {
-        last = Date.now();
-        if (ev.lengthComputable) { var p = Math.min(99, Math.round(ev.loaded / ev.total * 100)); if (p !== a.pct) { a.pct = p; renderAtt(); } }
-      };
+      x.setRequestHeader('Content-Type', 'application/octet-stream');
+      x.upload.onprogress = function (ev) { last = Date.now(); if (ev.lengthComputable) onProg(ev.loaded / ev.total); };
       x.onload = function () {
         clearInterval(timer);
-        if (x.status >= 200 && x.status < 300) { try { res(JSON.parse(x.responseText)); } catch (er) { fail('http', 'странный ответ сервера'); } }
-        else fail('http', (x.responseText || ('ошибка ' + x.status)).slice(0, 120));
+        if (x.status === 200) return res();
+        if (x.status >= 500 || x.status === 0) return fail('net');
+        fail('http', (x.responseText || ('ошибка ' + x.status)).slice(0, 120));
       };
       x.onerror = function () { fail('net'); };
-      timer = setInterval(function () { if (Date.now() - last > 30000) { x.abort(); fail('stall'); } }, 2000);
-      var fd = new FormData(); fd.append('file', f, f.name || 'файл');
-      a.pct = 0; renderAtt();
-      x.send(fd);
+      timer = setInterval(function () { if (Date.now() - last > 15000) { x.abort(); fail('stall'); } }, 1500);
+      x.send(blob);
     });
+  }
+  function uploadOne(f, a) {
+    var n = Math.max(1, Math.ceil(f.size / CHUNK)), i = 0;
+    var upid = (Date.now().toString(36) + Math.random().toString(36).slice(2, 10)).replace(/[^a-z0-9]/g, '');
+    function pct(p) { p = Math.min(99, Math.max(0, Math.floor(p))); if (p !== a.pct) { a.pct = p; renderAtt(); } }
+    a.pct = 0; a.retry = 0; renderAtt();
+    function next() {
+      if (i >= n) return post('/api/upload/finish', { id: upid, n: n, name: f.name || 'файл' });
+      var tries = 0, blob = f.slice(i * CHUNK, Math.min(f.size, (i + 1) * CHUNK));
+      function attempt() {
+        return sendChunk(upid, i, n, blob, function (fr) { pct((i + fr) / n * 100); }).catch(function (e) {
+          if (e.kind === 'http') throw e;
+          if (++tries > 6) { e.kind = 'stall'; throw e; }
+          a.retry = tries; renderAtt();
+          return new Promise(function (ok) { setTimeout(ok, Math.min(6000, 800 * tries)); })
+            .then(function () { return tries >= 2 ? relocate() : null; })
+            .then(attempt);
+        });
+      }
+      return attempt().then(function () { i++; a.retry = 0; pct(i / n * 100); return next(); });
+    }
+    return next();
   }
   function addFiles(list) {
     Array.prototype.forEach.call(list || [], function (f) {
@@ -626,7 +647,7 @@
       }).then(function (j) { a.id = j.id; a.state = 'ok'; renderAtt(); })
         .catch(function (e) {
           a.state = 'bad'; renderAtt();
-          var why = e.kind === 'stall' ? 'загрузка встала на ' + (a.pct || 0) + '% — дорога до ноутбука режется'
+          var why = e.kind === 'stall' ? 'связь до ноутбука рвётся (дошло ' + (a.pct || 0) + '%, каждый кусок пробовал 6 раз). Попробуй ещё раз'
             : e.kind === 'net' ? 'нет связи с ноутбуком' : (e.message || 'ошибка');
           toast('Не загрузилось «' + a.name + '»: ' + why, 7000);
         });
