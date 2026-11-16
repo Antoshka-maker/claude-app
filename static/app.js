@@ -269,26 +269,39 @@
         w.innerHTML = '<div class="wait">🧪 Рисую формулу…</div>';
         rawRetry('/api/render', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'smiles', code: b.code }) })
           .then(function (r) { if (!r.ok) throw new Error(); return r.blob(); })
-          .then(function (bl) { w.innerHTML = '<img class="pic" alt="Структурная формула">'; w.firstChild.src = URL.createObjectURL(bl); })
+          .then(function (bl) { w.innerHTML = '<img class="pic" alt="Структурная формула">'; w.firstChild.src = URL.createObjectURL(bl); w._img = w.firstChild.src; })
           .catch(function () { w.innerHTML = '<div class="code"><div class="code-h"><span>smiles</span></div><pre><code>' + esc(b.code) + '</code></pre></div>'; });
         return;
       }
-      var id = ++wid;
+      var fs = '<button type="button" class="wfs" aria-label="Во весь экран"><svg viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>';
+      w._code = b; var id = ++wid;
       var f = document.createElement('iframe');
       f.setAttribute('sandbox', 'allow-scripts');
       f.setAttribute('data-wid', id);
       f.setAttribute('loading', 'lazy');
       f.srcdoc = frameDoc(b.kind, b.code, id);
-      w.innerHTML = ''; w.appendChild(f);
+      w.innerHTML = fs; w.appendChild(f);
     });
   }
 
+  function fullWidget(w) {
+    var box = document.createElement('div'); box.id = 'fullw';
+    box.innerHTML = '<div class="fw-top"><button type="button" class="ib" aria-label="Закрыть"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>';
+    if (w._code) {
+      var f = document.createElement('iframe'); f.setAttribute('sandbox', 'allow-scripts');
+      f.srcdoc = frameDoc(w._code.kind, w._code.code, -1); box.appendChild(f);
+    } else return;
+    document.body.appendChild(box);
+    box.querySelector('button').onclick = function () { box.remove(); };
+    if (tg && tg.BackButton) { tg.BackButton.show(); }
+  }
   function msgNode(m) {
     var el = document.createElement('div');
     el.setAttribute('data-id', m.id);
     if (m.role === 'user') {
       el.className = 'm-user';
-      el.innerHTML = (m.text ? '<div class="bubble">' + esc(m.text) + '</div>' : '') + filesHtml(m.files) +
+      el._text = m.text;
+      el.innerHTML = (m.text ? '<div class="bubble" data-umsg>' + esc(m.text) + '</div>' : '') + filesHtml(m.files) +
         (m.local && m.local.length ? '<div class="files">' + m.local.map(function (a) {
           return a.preview ? '<img src="' + a.preview + '" alt="">' : '<span class="chip">📎 ' + esc(a.name) + '</span>';
         }).join('') + '</div>' : '');
@@ -607,7 +620,7 @@
     else if (ev.t === 'queued') { S.steps.push('📥 В очереди — жду предыдущий ответ'); }
     else if (ev.t === 'step') { S.steps.push(ev.text); }
     else if (ev.t === 'delta') { S.live = ev.text; }
-    else if (ev.t === 'done') { S.busy = false; S.stopping = false; S.live = ''; S.steps = []; haptic('medium'); reloadMessages(); loadChats(); }
+    else if (ev.t === 'done') { S.busy = false; S.stopping = false; S.live = ''; S.steps = []; S.tail = Date.now() + 30000; haptic('medium'); reloadMessages(); loadChats(); }
     else if (ev.t === 'title') { if (!S.incognito) { S.title = ev.text; setTitle(); loadChats(); } }
   }
 
@@ -626,7 +639,7 @@
         if (S.busy && !r.busy && !(r.events || []).length) { S.busy = false; reloadMessages(); }
         renderLive(); setBusyUI();
         if (stick) toBottom(true);
-        if (S.busy || r.busy) loop(); else S.polling = false;
+        if (S.busy || r.busy || Date.now() < (S.tail || 0)) loop(); else S.polling = false;
       }).catch(function (e) {
         S.fails++;
         if (S.fails >= 6) setNet('Нет связи с ноутбуком. Проверь, что бот на ноутбуке запущен — переподключусь сам.');
@@ -843,6 +856,17 @@
       return;
     }
     var th = t.closest('.thinking'); if (th) { S.openSteps = !S.openSteps; renderLive(); return; }
+    var um = t.closest('[data-umsg]');
+    if (um) {
+      var utext = um.closest('.m-user')._text || '';
+      sheet('Твоё сообщение', '<button type="button" class="sh-item" id="um-copy">' + I.copy.replace('<svg', '<svg style="width:22px;height:22px"') + 'Копировать</button>' +
+        '<button type="button" class="sh-item" id="um-edit">' + I.edit + 'Изменить и отправить ещё раз</button>');
+      $('#um-copy').onclick = function () { closeSheet(); copyText(utext); };
+      $('#um-edit').onclick = function () { closeSheet(); input.value = utext; autosize(); input.focus(); };
+      return;
+    }
+    var wf = t.closest('.wfs');
+    if (wf) { fullWidget(wf.closest('.widget')); return; }
     var chip = t.closest('.files .chip[data-f]');
     if (chip && APP.fileMenu) { APP.fileMenu(S.key, chip.getAttribute('data-f')); return; }
     var img = t.closest('.files img, .widget .pic');
@@ -884,6 +908,8 @@
     tg.onEvent('themeChanged', applyTheme);
     if (tg.disableVerticalSwipes) try { tg.disableVerticalSwipes(); } catch (e) {}
     if (tg.BackButton) tg.BackButton.onClick(function () {
+      var fw = document.getElementById('fullw');
+      if (fw) { fw.remove(); if ($('#page').hidden && !document.getElementById('app').classList.contains('drawer-open')) tg.BackButton.hide(); return; }
       if (!$('#sheet').hidden) closeSheet();
       else if (!$('#page').hidden) backPage();
       else openDrawer(false);

@@ -11,9 +11,21 @@ var MD = (function () {
     });
   }
 
+  // формулы LaTeX: $…$, \(…\) — в строке; $$…$$, \[…\] — отдельным блоком
+  function tex(src, display) {
+    if (!window.katex) return esc(display ? '$$' + src + '$$' : '$' + src + '$');
+    try { return katex.renderToString(src, { displayMode: !!display, throwOnError: false, strict: 'ignore', output: 'html' }); }
+    catch (e) { return esc(src); }
+  }
   function inline(s) {
-    var codes = [];
+    var codes = [], maths = [];
     s = String(s).replace(/`([^`\n]+)`/g, function (_, c) { codes.push(c); return '\u0000' + (codes.length - 1) + '\u0000'; });
+    s = s.replace(/\\\((.+?)\\\)/g, function (_, m) { maths.push(tex(m)); return '\u0001' + (maths.length - 1) + '\u0001'; });
+    s = s.replace(/\$\$(.+?)\$\$/g, function (_, m) { maths.push(tex(m, true)); return '\u0001' + (maths.length - 1) + '\u0001'; });
+    s = s.replace(/(^|[^\\$\w])\$(?=[^\s$])([^$\n]*?[^\s$\\])\$(?![\w$])/g, function (all, pre, m) {
+      if (/^\d+([.,]\d+)?$/.test(m)) return all;          // «$5» — это деньги, а не формула
+      maths.push(tex(m)); return pre + '\u0001' + (maths.length - 1) + '\u0001';
+    });
     s = esc(s);
     s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" data-ext>$1</a>');
     s = s.replace(/(^|[\s(])(https?:\/\/[^\s<)"]+[^\s<)".,;:!?])/g, '$1<a href="$2" data-ext>$2</a>');
@@ -22,6 +34,7 @@ var MD = (function () {
     s = s.replace(/(^|[^\w])_(?=\S)([^_\n]+?)_(?=[^\w]|$)/g, '$1<i>$2</i>');
     s = s.replace(/~~(?=\S)(.+?)~~/g, '<s>$1</s>');
     s = s.replace(/^\[ \]\s/, '☐ ').replace(/^\[[xX]\]\s/, '☑ ');
+    s = s.replace(/\u0001(\d+)\u0001/g, function (_, i) { return maths[+i]; });
     return s.replace(/\u0000(\d+)\u0000/g, function (_, i) { return '<code>' + esc(codes[+i]) + '</code>'; });
   }
 
@@ -94,6 +107,19 @@ var MD = (function () {
         continue;
       }
       if (/^\s*$/.test(l)) { i++; continue; }
+      var dm = l.match(/^\s*(\$\$|\\\[)\s*(.*)$/);
+      if (dm) {                                   // формула отдельным блоком, может быть на нескольких строках
+        var close = dm[1] === '$$' ? '$$' : '\\]', body = [], rest = dm[2];
+        var endAt = rest.indexOf(close);
+        if (endAt >= 0) { body.push(rest.slice(0, endAt)); i++; }
+        else {
+          body.push(rest); i++;
+          while (i < lines.length && lines[i].indexOf(close) < 0) { body.push(lines[i]); i++; }
+          if (i < lines.length) { body.push(lines[i].slice(0, lines[i].indexOf(close))); i++; }
+        }
+        out.push('<div class="mathblock">' + tex(body.join('\n'), true) + '</div>');
+        continue;
+      }
       var h = l.match(/^(#{1,6})\s+(.*)$/);
       if (h) { var n = Math.min(h[1].length + 1, 4); out.push('<h' + n + '>' + inline(h[2]) + '</h' + n + '>'); i++; continue; }
       if (/^\s*(---|\*\*\*|___)\s*$/.test(l)) { out.push('<hr>'); i++; continue; }

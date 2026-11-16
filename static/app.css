@@ -156,7 +156,18 @@ a { color: var(--accent-text); text-decoration: underline; text-underline-offset
 .tbl th { font-weight: 600; background: var(--surface); }
 .tbl tr:last-child td { border-bottom: 0; }
 
+/* формулы */
+.mathblock { overflow-x: auto; overflow-y: hidden; margin: 0 0 12px; padding: 4px 0; }
+.md .katex { font-size: 1.08em; }
 /* рисунки из ответа */
+.widget { position: relative; }
+.widget .wfs { position: absolute; top: 6px; right: 6px; width: 34px; height: 34px; border-radius: 10px; border: 0; background: rgba(0,0,0,.45);
+  display: flex; align-items: center; justify-content: center; opacity: .85; z-index: 2; }
+.widget .wfs svg { width: 18px; height: 18px; fill: none; stroke: #fff; stroke-width: 2; stroke-linecap: round; }
+#fullw { position: fixed; inset: 0; z-index: 55; background: var(--bg); display: flex; flex-direction: column; }
+#fullw .fw-top { display: flex; justify-content: flex-end; padding: 6px; }
+#fullw iframe, #fullw .fw-img { flex: 1; width: 100%; border: 0; background: #fff; }
+#fullw .fw-img { object-fit: contain; background: var(--bg); min-height: 0; }
 .widget { margin: 0 auto 12px; max-width: 640px; }
 .widget iframe { width: 100%; border: 0; border-radius: 12px; background: transparent; display: block; min-height: 60px; }
 .widget .pic { max-width: 100%; border-radius: 12px; background: #fff; display: block; margin: 0 auto; }
