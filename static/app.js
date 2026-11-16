@@ -8,7 +8,7 @@
   // ---------- связь с ноутбуком ----------
   // Интерфейс лежит на GitHub Pages, адрес ноутбука приходит в ?api=... Пускаем только адреса известных туннелей.
   var Q = new URLSearchParams(location.search);
-  function okApi(a) { return /^https:\/\/[a-z0-9.-]+\.(pinggy-free\.link|pinggy\.link|pinggy\.online|trycloudflare\.com|tuna\.am)$/i.test(a || ''); }
+  function okApi(a) { return /^https:\/\/[a-z0-9.-]+\.(pinggy-free\.link|pinggy\.link|pinggy\.online|pinggy\.net|trycloudflare\.com|tuna\.am)$/i.test(a || ''); }
   var API = okApi(Q.get('api')) ? Q.get('api') : '';
   // запасные туннели к тому же ноутбуку: бот держит несколько сразу, приложение ходит через тот, что отвечает
   var ALT = (Q.get('alt') || '').split(',').filter(function (u) { return okApi(u) && u !== API; });
