@@ -25,14 +25,47 @@
   function setSmall(v) { SMALL = v; try { localStorage.setItem('upSmall', v ? String(Date.now()) : '0'); } catch (e) {} }
   function raw(path, opts, ms) {
     opts = Object.assign({}, opts || {});
-    opts.headers = Object.assign({ 'X-Init-Data': tg ? tg.initData : '', 'X-Pinggy-No-Screen': '1' }, SMALL ? { 'X-Fresh': '1' } : {}, opts.headers || {});
+    var small = SMALL ? { 'X-Fresh': '1', 'X-Max': '9000' } : {};
+    if (SMALL && window.DecompressionStream) small['X-Gz'] = '1';
+    opts.headers = Object.assign({ 'X-Init-Data': tg ? tg.initData : '', 'X-Pinggy-No-Screen': '1' }, small, opts.headers || {});
     var ctl = window.AbortController ? new AbortController() : null, t = null, ext = opts.signal;
     if (ctl) {
       opts.signal = ctl.signal; t = setTimeout(function () { ctl.abort(); }, ms || 25000);
       if (ext) { if (ext.aborted) ctl.abort(); else ext.addEventListener('abort', function () { ctl.abort(); }); }
     }
-    return fetch(API + path, opts).then(function (r) { clearTimeout(t); return r; },
-                                        function (e) { clearTimeout(t); throw e; });
+    return fetch(API + path, opts).then(function (r) {
+      clearTimeout(t);
+      var xp = r.headers.get('X-Parts');
+      return xp ? gatherParts(r, xp, ext) : r;
+    }, function (e) { clearTimeout(t); throw e; });
+  }
+  // Большой ответ на дороге, где режут соединения после ~16 КБ: сервер отдаёт его кусками по 6 КБ,
+  // каждый кусок — по новому соединению, в 4 потока; собираем и отдаём дальше как обычный ответ.
+  function gatherParts(r0, xp, ext) {
+    var a = xp.split(';'), id = a[0], n = +a[1], gz = a[3] === 'gzip', bufs = new Array(n), next = 0, failed = null;
+    function one(i, tries) {
+      if (failed || (ext && ext.aborted)) return Promise.reject(failed || new Error('abort'));
+      var c = window.AbortController ? new AbortController() : null, tm = c ? setTimeout(function () { c.abort(); }, 9000) : null;
+      return fetch(API + '/api/part', { headers: { 'X-Pinggy-No-Screen': '1', 'X-Fresh': '1', 'X-Part': id + ';' + i },
+                                        signal: c ? c.signal : undefined })
+        .then(function (r) { clearTimeout(tm); if (!r.ok) { var e = new Error('кусок ' + r.status); e.fatal = r.status === 404; throw e; } return r.arrayBuffer(); })
+        .then(function (b) { bufs[i] = b; })
+        .catch(function (e) {
+          clearTimeout(tm);
+          if (e.fatal || tries >= 6) { failed = failed || e; throw e; }
+          return new Promise(function (ok) { setTimeout(ok, 400 * (tries + 1)); }).then(function () { return one(i, tries + 1); });
+        });
+    }
+    function worker() { if (next >= n) return Promise.resolve(); var i = next++; return one(i, 0).then(worker); }
+    return Promise.all([worker(), worker(), worker(), worker()]).then(function () {
+      var blob = new Blob(bufs), ct = r0.headers.get('Content-Type') || 'application/octet-stream';
+      var body = gz ? new Response(blob.stream().pipeThrough(new DecompressionStream('gzip'))).blob() : Promise.resolve(blob);
+      return body.then(function (b) {
+        var h = { 'Content-Type': ct }, cd = r0.headers.get('Content-Disposition');
+        if (cd) h['Content-Disposition'] = cd;
+        return new Response(b, { status: 200, headers: h });
+      });
+    });
   }
   function alive(u, ms) {
     var c = window.AbortController ? new AbortController() : null;
