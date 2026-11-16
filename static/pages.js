@@ -231,6 +231,59 @@
     return 'сбросится ' + d.toLocaleString('ru-RU', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
   }
   function tokens(n) { return n >= 1e6 ? (n / 1e6).toFixed(1) + ' млн' : n >= 1e3 ? Math.round(n / 1e3) + ' тыс.' : String(n); }
+  // ---------- поддержка: написать, что не работает (+ скриншот), и видеть ответы ----------
+  P.support = function () {
+    var shots = [];
+    var body = A.page('Поддержка', '<div class="pg-h">Поддержка</div><p class="pg-sub">Что-то не работает? Напиши, что делал и что пошло не так. ' +
+      'Можно приложить скриншот. Заявка уйдёт Антону, ответ придёт сюда и в Telegram.</p>' +
+      '<textarea class="ta" id="sup-t" style="min-height:130px" placeholder="Например: нажимаю «Камера» — открывается галерея"></textarea>' +
+      '<div id="sup-f" class="muted" style="margin:6px 2px"></div>' +
+      '<div class="btn-row"><button type="button" class="btn sec" id="sup-add">📎 Скриншот</button><button type="button" class="btn" id="sup-go">Отправить</button></div>' +
+      '<input type="file" id="sup-in" accept="image/*,.pdf,.txt,.log" multiple hidden>' +
+      '<div class="pg-h" style="font-size:19px;margin-top:22px">Мои заявки</div><div id="sup-list" class="muted">Загружаю…</div>');
+    var inp = body.querySelector('#sup-in');
+    function showFiles() { body.querySelector('#sup-f').textContent = shots.length ? '📎 ' + shots.map(function (f) { return f.name; }).join(', ') : ''; }
+    body.querySelector('#sup-add').onclick = function () { inp.click(); };
+    inp.onchange = function () { for (var i = 0; i < inp.files.length; i++) shots.push(inp.files[i]); inp.value = ''; showFiles(); };
+    function list() {
+      A.api('/api/support').then(function (r) {
+        var el = body.querySelector('#sup-list');
+        if (!r.tickets.length) { el.textContent = 'Пока заявок нет.'; return; }
+        el.className = '';
+        el.innerHTML = r.tickets.map(function (t) {
+          return '<div class="card"><h3><span class="grow">#' + t.id + ' · ' + new Date(t.ts * 1000).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) +
+            '</span><span class="muted">' + esc(t.status_text) + '</span></h3><div style="white-space:pre-wrap">' + esc(t.text || '(без текста)') + '</div>' +
+            (t.files.length ? '<div class="muted" style="margin-top:6px">📎 ' + esc(t.files.join(', ')) + '</div>' : '') +
+            t.answers.map(function (x) { return '<div style="margin-top:10px;padding:10px 12px;border-radius:12px;background:var(--bubble)">💬 ' + esc(x.text) + '</div>'; }).join('') + '</div>';
+        }).join('');
+      }).catch(function () { body.querySelector('#sup-list').textContent = 'Не загрузилось — нет связи с ноутбуком.'; });
+    }
+    body.querySelector('#sup-go').onclick = function () {
+      var text = body.querySelector('#sup-t').value.trim(), btn = this;
+      if (!text && !shots.length) { A.toast('Напиши, что не работает'); return; }
+      var fd = new FormData();
+      fd.append('text', text);
+      fd.append('ua', navigator.userAgent.slice(0, 200));
+      fd.append('api', A.apiUrl(''));
+      fd.append('screen', screen.width + 'x' + screen.height);
+      shots.forEach(function (f) { fd.append('file', f, f.name || 'скриншот.jpg'); });
+      btn.disabled = true; btn.textContent = 'Отправляю…';
+      var x = new XMLHttpRequest();
+      x.open('POST', A.apiUrl('/api/support'));
+      x.setRequestHeader('X-Init-Data', A.initData()); x.setRequestHeader('X-Pinggy-No-Screen', '1');
+      x.onload = function () {
+        btn.disabled = false; btn.textContent = 'Отправить';
+        if (x.status === 200) {
+          var id = ''; try { id = JSON.parse(x.responseText).id; } catch (e) {}
+          A.toast('Заявка #' + id + ' отправлена'); body.querySelector('#sup-t').value = ''; shots = []; showFiles(); list();
+        } else A.toast('Не отправилось: ' + (x.responseText || x.status));
+      };
+      x.onerror = function () { btn.disabled = false; btn.textContent = 'Отправить'; A.toast('Нет связи с ноутбуком — напиши в «🛟 Поддержка» в боте'); };
+      x.send(fd);
+    };
+    list();
+  };
+
   // ---------- проверка связи: какие объёмы проходят от телефона до ноутбука и обратно ----------
   P.net = function () {
     var sizes = [8, 32, 128, 512, 2048];   // КБ

@@ -209,6 +209,7 @@
     ['memory', 'Память', '<svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5"/></svg>'],
     ['files', 'Файлы', '<svg class="ico" viewBox="0 0 24 24"><path d="M4 5h6l2 2h8v12H4z"/></svg>'],
     ['limits', 'Лимиты', '<svg class="ico" viewBox="0 0 24 24"><path d="M5 19V11M12 19V5M19 19v-6"/></svg>'],
+    ['support', 'Поддержка', '<svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><path d="M5.6 5.6l3.6 3.6M14.8 14.8l3.6 3.6M18.4 5.6l-3.6 3.6M9.2 14.8l-3.6 3.6"/></svg>'],
     ['net', 'Проверка связи', '<svg class="ico" viewBox="0 0 24 24"><path d="M2 9a15 15 0 0120 0M5 12.5a10 10 0 0114 0M8.5 16a5 5 0 017 0"/><circle cx="12" cy="19" r="1"/></svg>', 'owner'],
     ['accounts', 'Аккаунты', '<svg class="ico" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M3 19c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5"/><path d="M16 4.5a3.5 3.5 0 010 7M18 13.8c1.8.7 3 2.6 3 5.2"/></svg>', 'owner']
   ];
