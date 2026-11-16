@@ -509,6 +509,52 @@
     }).join('');
     setBusyUI();
   }
+  // ---------- камера прямо в приложении ----------
+  // Telegram на Android игнорирует «снять камерой» у обычного выбора файла и открывает галерею,
+  // поэтому включаем камеру сами (как микрофон для диктовки) и делаем снимок с видео.
+  var camClose = null;
+  function openCamera() {
+    if (!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)) { $('#f-cam').click(); return; }
+    var facing = 'environment', stream = null;
+    var box = document.createElement('div'); box.id = 'cam';
+    box.innerHTML = '<video playsinline autoplay muted></video><div class="cam-msg" hidden></div>' +
+      '<div class="cam-bar"><button type="button" class="cam-b cam-x" aria-label="Закрыть"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>' +
+      '<button type="button" class="cam-shot" aria-label="Снять"></button>' +
+      '<button type="button" class="cam-b cam-flip" aria-label="Сменить камеру"><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 0114-5.3L20 9"/><path d="M20 4v5h-5"/><path d="M20 12a8 8 0 01-14 5.3L4 15"/><path d="M4 20v-5h5"/></svg></button></div>';
+    document.body.appendChild(box);
+    var v = box.querySelector('video'), msg = box.querySelector('.cam-msg');
+    function stop() { if (stream) stream.getTracks().forEach(function (tr) { tr.stop(); }); stream = null; }
+    function close() { stop(); box.remove(); camClose = null; if (tg && tg.BackButton && $('#page').hidden && !document.getElementById('app').classList.contains('drawer-open')) tg.BackButton.hide(); }
+    camClose = close;
+    function start() {
+      stop();
+      navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: facing }, width: { ideal: 1920 }, height: { ideal: 1440 } }, audio: false })
+        .then(function (st) { stream = st; v.srcObject = st; msg.hidden = true; return v.play(); })
+        .catch(function () {
+          msg.hidden = false;
+          msg.innerHTML = 'Нет доступа к камере.<br>Разреши камеру для Telegram в настройках телефона или выбери фото из галереи.' +
+            '<button type="button" class="cam-alt">Открыть галерею</button>';
+          msg.querySelector('.cam-alt').onclick = function () { close(); $('#f-photo').click(); };
+        });
+    }
+    box.querySelector('.cam-x').onclick = close;
+    box.querySelector('.cam-flip').onclick = function () { facing = facing === 'environment' ? 'user' : 'environment'; start(); };
+    box.querySelector('.cam-shot').onclick = function () {
+      if (!v.videoWidth) return;
+      var c = document.createElement('canvas'); c.width = v.videoWidth; c.height = v.videoHeight;
+      c.getContext('2d').drawImage(v, 0, 0);
+      c.toBlob(function (b) {
+        if (!b) return;
+        var d = new Date(), nm = 'фото_' + d.getHours() + '-' + ('0' + d.getMinutes()).slice(-2) + '-' + ('0' + d.getSeconds()).slice(-2) + '.jpg';
+        var f; try { f = new File([b], nm, { type: 'image/jpeg' }); } catch (e) { f = b; f.name = nm; }
+        haptic('medium'); close(); addFiles([f]);
+      }, 'image/jpeg', 0.9);
+    };
+    if (tg && tg.BackButton) tg.BackButton.show();
+    start();
+  }
+  document.addEventListener('visibilitychange', function () { if (document.hidden && camClose) camClose(); });
+
   // загрузка через XHR: видно проценты и можно понять, что связь «встала», а не ждать 3 минуты
   function uploadOne(f, a) {
     return new Promise(function (res, rej) {
@@ -862,7 +908,8 @@
     var sm = t.closest('[data-set-model]'); if (sm) { saveSettings({ model: sm.getAttribute('data-set-model') }); modelSheet(); haptic('light'); return; }
     var se = t.closest('[data-set-effort]'); if (se) { saveSettings({ effort: se.getAttribute('data-set-effort') }); modelSheet(); haptic('light'); return; }
     var ss = t.closest('[data-set-style]'); if (ss) { saveSettings({ style: ss.getAttribute('data-set-style') }); closeSheet(); toast('Стиль: ' + ss.querySelector('.t1').textContent); return; }
-    var pk = t.closest('[data-pick]'); if (pk) { closeSheet(); $('#f-' + pk.getAttribute('data-pick')).click(); return; }
+    var pk = t.closest('[data-pick]');
+    if (pk) { closeSheet(); if (pk.getAttribute('data-pick') === 'cam') openCamera(); else $('#f-' + pk.getAttribute('data-pick')).click(); return; }
     var ua = t.closest('[data-unatt]'); if (ua) { S.att.splice(+ua.getAttribute('data-unatt'), 1); renderAtt(); return; }
     var pgb = t.closest('[data-page]'); if (pgb) { closeSheet(); openDrawer(false); openPage(pgb.getAttribute('data-page')); return; }
     var mv = t.closest('[data-move-to]');
@@ -956,6 +1003,7 @@
     tg.onEvent('themeChanged', applyTheme);
     if (tg.disableVerticalSwipes) try { tg.disableVerticalSwipes(); } catch (e) {}
     if (tg.BackButton) tg.BackButton.onClick(function () {
+      if (camClose) { camClose(); return; }
       var fw = document.getElementById('fullw');
       if (fw) { fw.remove(); if ($('#page').hidden && !document.getElementById('app').classList.contains('drawer-open')) tg.BackButton.hide(); return; }
       if (!$('#sheet').hidden) closeSheet();
