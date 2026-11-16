@@ -158,6 +158,7 @@
     ['memory', 'Память', '<svg class="ico" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5"/></svg>'],
     ['files', 'Файлы', '<svg class="ico" viewBox="0 0 24 24"><path d="M4 5h6l2 2h8v12H4z"/></svg>'],
     ['limits', 'Лимиты', '<svg class="ico" viewBox="0 0 24 24"><path d="M5 19V11M12 19V5M19 19v-6"/></svg>'],
+    ['net', 'Проверка связи', '<svg class="ico" viewBox="0 0 24 24"><path d="M2 9a15 15 0 0120 0M5 12.5a10 10 0 0114 0M8.5 16a5 5 0 017 0"/><circle cx="12" cy="19" r="1"/></svg>', 'owner'],
     ['accounts', 'Аккаунты', '<svg class="ico" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M3 19c0-3.3 2.7-5.5 6-5.5s6 2.2 6 5.5"/><path d="M16 4.5a3.5 3.5 0 010 7M18 13.8c1.8.7 3 2.6 3 5.2"/></svg>', 'owner']
   ];
   function hl(text, q) {
@@ -527,7 +528,7 @@
       }).then(function (j) { a.id = j.id; a.state = 'ok'; renderAtt(); })
         .catch(function (e) {
           a.state = 'bad'; renderAtt();
-          var why = e.kind === 'stall' ? 'загрузка встала на ' + (a.pct || 0) + '% — связь телефона с ноутбуком режется. Попробуй с VPN или пришли файл боту в Telegram'
+          var why = e.kind === 'stall' ? 'загрузка встала на ' + (a.pct || 0) + '% — дорога до ноутбука режется'
             : e.kind === 'net' ? 'нет связи с ноутбуком' : (e.message || 'ошибка');
           toast('Не загрузилось «' + a.name + '»: ' + why, 7000);
         });
@@ -915,7 +916,7 @@
   $('#pg-back').addEventListener('click', backPage);
   window.APP = { S: S, CFG: function () { return CFG; }, apiBase: function () { return API || location.origin; }, api: api, post: post, rawRetry: rawRetry, esc: esc, toast: toast,
     sheet: sheet, closeSheet: closeSheet, confirmAsk: confirmAsk, haptic: haptic, openChat: openChat, newChat: newChat,
-    loadChats: loadChats, openPage: openPage, closePage: closePage, backPage: backPage, I: I, md: MD,
+    loadChats: loadChats, apiUrl: function (p) { return API + p; }, initData: function () { return tg ? tg.initData : ''; }, openPage: openPage, closePage: closePage, backPage: backPage, I: I, md: MD,
     page: function (title, html, act) {
       var pg = $('#page'); pg.hidden = false;
       pg.querySelector('.pg-title').textContent = title || '';

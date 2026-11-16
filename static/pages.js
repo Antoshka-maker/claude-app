@@ -231,6 +231,53 @@
     return 'сбросится ' + d.toLocaleString('ru-RU', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
   }
   function tokens(n) { return n >= 1e6 ? (n / 1e6).toFixed(1) + ' млн' : n >= 1e3 ? Math.round(n / 1e3) + ' тыс.' : String(n); }
+  // ---------- проверка связи: какие объёмы проходят от телефона до ноутбука и обратно ----------
+  P.net = function () {
+    var sizes = [8, 32, 128, 512, 2048];   // КБ
+    var body = A.page('Проверка связи', '<div class="pg-h">Проверка связи</div><p class="pg-sub">Гоняю данные разного объёма между телефоном и ноутбуком. ' +
+      'Так видно, на каком объёме дорога «встаёт».</p><div class="card" id="net-out" style="font-variant-numeric:tabular-nums"></div>' +
+      '<button type="button" class="btn" id="net-go" style="margin-top:12px">Проверить ещё раз</button>');
+    var out = body.querySelector('#net-out'), res = [];
+    function line(t) { out.insertAdjacentHTML('beforeend', '<div style="padding:5px 0;border-bottom:1px solid var(--line)">' + esc(t) + '</div>'); }
+    function xhr(method, path, data, kb) {
+      return new Promise(function (ok) {
+        var x = new XMLHttpRequest(), t0 = Date.now(), sent = 0, got = 0, done = false;
+        function fin(r) { if (done) return; done = true; clearTimeout(tm); r.ms = Date.now() - t0; r.kb = kb; r.sent = sent; r.got = got; ok(r); }
+        x.open(method, A.apiUrl(path));
+        x.setRequestHeader('X-Init-Data', A.initData()); x.setRequestHeader('X-Pinggy-No-Screen', '1');
+        if (data) x.setRequestHeader('Content-Type', 'application/octet-stream');
+        x.responseType = 'arraybuffer';
+        if (x.upload) x.upload.onprogress = function (e) { if (e.lengthComputable) sent = Math.round(e.loaded / e.total * 100); };
+        x.onprogress = function (e) { got = e.loaded; };
+        x.onload = function () { fin({ ok: x.status === 200, st: x.status, bytes: x.response ? x.response.byteLength : 0 }); };
+        x.onerror = function () { fin({ ok: false, st: 'сеть' }); };
+        var tm = setTimeout(function () { x.abort(); fin({ ok: false, st: 'встало' }); }, 25000);
+        x.send(data || null);
+      });
+    }
+    function run() {
+      out.innerHTML = ''; res = []; var q = Promise.resolve();
+      sizes.forEach(function (kb) {
+        q = q.then(function () { return xhr('GET', '/api/diag/down?n=' + kb * 1024, null, kb); }).then(function (r) {
+          r.dir = 'down'; res.push(r);
+          line('⬇ к телефону ' + kb + ' КБ — ' + (r.ok && r.bytes === kb * 1024 ? 'ок, ' + (r.ms / 1000).toFixed(1) + ' с' : 'НЕ ДОШЛО (' + r.st + ', получено ' + Math.round(r.got / 1024) + ' КБ)'));
+        });
+      });
+      sizes.forEach(function (kb) {
+        q = q.then(function () { return xhr('POST', '/api/diag/up', new Uint8Array(kb * 1024), kb); }).then(function (r) {
+          r.dir = 'up'; res.push(r);
+          line('⬆ к ноутбуку ' + kb + ' КБ — ' + (r.ok ? 'ок, ' + (r.ms / 1000).toFixed(1) + ' с' : 'НЕ ДОШЛО (' + r.st + ', ушло с телефона ' + r.sent + '%)'));
+        });
+      });
+      q.then(function () {
+        line('Готово. Результат записан на ноутбуке.');
+        A.post('/api/diag/report', { ua: navigator.userAgent.slice(0, 120), res: res.map(function (r) { return [r.dir, r.kb, r.ok ? 'ok' : r.st, r.ms, r.sent, Math.round(r.got / 1024)]; }) }).catch(function () {});
+      });
+    }
+    body.querySelector('#net-go').onclick = run;
+    run();
+  };
+
   P.limits = function () {
     loading('Лимиты');
     A.api('/api/limits').then(function (r) {
