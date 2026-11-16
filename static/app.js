@@ -526,7 +526,7 @@
     var isStop = sendBtn.classList.contains('stop');
     var uploading = S.att.some(function (a) { return a.state === 'up'; });
     var ready = input.value.trim() || S.att.some(function (a) { return a.state === 'ok'; });
-    sendBtn.disabled = isStop ? S.stopping : (S.sending || uploading || !ready);
+    sendBtn.disabled = !S.ready || (isStop ? S.stopping : (S.sending || uploading || !ready));
   }
 
   // ---------- открыть чат / новый чат ----------
@@ -579,9 +579,9 @@
   function send(textArg) {
     var text = (textArg != null ? textArg : input.value).trim();
     var files = textArg != null ? [] : S.att.filter(function (a) { return a.state === 'ok'; });
-    if ((!text && !files.length) || S.sending) return;
+    if ((!text && !files.length) || S.sending || !S.ready) return;
     if (textArg == null && S.att.some(function (a) { return a.state === 'up'; })) { toast('Дождись, пока файлы загрузятся'); return; }
-    S.sending = true; haptic('light');
+    S.sending = true; S.sentAt = Date.now(); haptic('light');
     if (textArg == null) { input.value = ''; autosize(); }
     var wasNew = !S.key;
     if (wasNew) feed.innerHTML = '';
@@ -795,7 +795,7 @@
   });
   input.addEventListener('focus', function () { setTimeout(function () { toBottom(true); }, 300); });
   sendBtn.addEventListener('click', function () {
-    if (sendBtn.classList.contains('stop')) stopRun(); else send();
+    if (sendBtn.classList.contains('stop')) { if (Date.now() - (S.sentAt || 0) > 800) stopRun(); } else send();
   });
 
   // ---------- клики ----------
@@ -926,6 +926,7 @@
         if (c.tg && !c.tg.ready && c.tg.uptime > 90) setTimeout(function () { toast('Telegram сейчас недоступен с ноутбука: приложение работает, но уведомлений в Telegram не будет', 6000); }, 1500); })
       .catch(function () {}).then(function () { return r; });
   }).then(function () {
+    S.ready = true;
     loadChats();
     var want = Q.get('chat');
     if (want) openChat(want); else newChat();
