@@ -43,6 +43,8 @@ a { color: var(--accent-text); text-decoration: underline; text-underline-offset
 .ci .t { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ci .tag { font-size: 11px; color: var(--text2); border: 1px solid var(--line); border-radius: 6px; padding: 0 5px; flex-shrink: 0; }
 .ci .dot { width: 9px; height: 9px; border-radius: 5px; background: var(--accent); flex-shrink: 0; animation: pulse 1.2s infinite; }
+.ci { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.ci .pin { width: 15px; height: 15px; fill: var(--text2); flex-shrink: 0; }
 .dr-empty { padding: 16px 12px; color: var(--text2); font-size: 15px; }
 .dr-foot { position: absolute; left: 0; right: 0; bottom: 0; padding: 12px 16px calc(16px + env(safe-area-inset-bottom));
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
@@ -147,6 +149,27 @@ a { color: var(--accent-text); text-decoration: underline; text-underline-offset
 .send.stop { background: var(--text); }
 .send.stop svg { stroke: none; fill: var(--bg); }
 
+/* меню чата (долгое нажатие / правая кнопка) */
+#sheet { position: fixed; inset: 0; z-index: 45; background: rgba(0,0,0,.5); display: flex; align-items: flex-end; justify-content: center; }
+.sheet-card { width: 100%; max-width: 460px; background: var(--sheet); border-radius: 22px 22px 0 0; padding: 10px 10px calc(14px + env(safe-area-inset-bottom));
+  animation: up .18s ease; }
+@media (min-width: 600px) { #sheet { align-items: center; } .sheet-card { border-radius: 22px; padding-bottom: 12px; } }
+@keyframes up { from { transform: translateY(30px); opacity: .5; } }
+.sheet-title { padding: 10px 14px 8px; font-size: 15px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sh-item { display: flex; align-items: center; gap: 16px; width: 100%; padding: 14px; border: 0; background: transparent; border-radius: 14px;
+  font-size: 17px; text-align: left; color: var(--text); }
+.sh-item:active { background: var(--active); }
+.sh-item svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+.sh-item.danger { color: var(--danger); }
+.sh-item:disabled { opacity: .45; }
+.sh-item small { margin-left: auto; font-size: 13px; color: var(--text2); }
+.sh-input { width: 100%; margin: 4px 0 12px; padding: 12px 14px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface);
+  color: var(--text); font-size: 17px; outline: none; }
+.sh-input:focus { border-color: var(--accent); }
+.sh-row { display: flex; gap: 10px; padding: 0 4px; }
+.sh-btn { flex: 1; height: 48px; border-radius: 14px; border: 0; background: var(--surface); color: var(--text); font-size: 16px; font-weight: 600; }
+.sh-btn.main { background: var(--newchat-bg); color: var(--newchat-text); }
+#title { cursor: pointer; }
 #viewer { position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.92); display: flex; align-items: center; justify-content: center; }
 #viewer img { max-width: 100%; max-height: 100%; }
 #toast { position: fixed; z-index: 60; left: 50%; bottom: calc(90px + env(safe-area-inset-bottom)); transform: translateX(-50%);

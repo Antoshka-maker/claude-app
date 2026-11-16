@@ -8,32 +8,76 @@
   // ---------- связь с ноутбуком ----------
   // Интерфейс лежит на GitHub Pages, адрес ноутбука приходит в ?api=... Пускаем только адреса известных туннелей.
   var Q = new URLSearchParams(location.search);
-  var API = '';
-  (function () {
-    var a = Q.get('api') || '';
-    if (/^https:\/\/[a-z0-9.-]+\.(pinggy-free\.link|pinggy\.link|pinggy\.online|trycloudflare\.com|tuna\.am)$/i.test(a)) API = a;
-  })();
+  function okApi(a) { return /^https:\/\/[a-z0-9.-]+\.(pinggy-free\.link|pinggy\.link|pinggy\.online|trycloudflare\.com|tuna\.am)$/i.test(a || ''); }
+  var API = okApi(Q.get('api')) ? Q.get('api') : '';
   var ON_PAGES = /github\.io$/i.test(location.hostname);
+  // репозиторий, где бот держит текущий адрес ноутбука (api.json) — на случай, если туннель сменил адрес
+  var REPO = ON_PAGES ? { owner: location.hostname.split('.')[0],
+    repo: location.pathname.split('/')[1] || location.hostname } : null;
 
-  function raw(path, opts) {
-    opts = opts || {};
+  function raw(path, opts, ms) {
+    opts = Object.assign({}, opts || {});
     opts.headers = Object.assign({ 'X-Init-Data': tg ? tg.initData : '', 'X-Pinggy-No-Screen': '1' }, opts.headers || {});
-    return fetch(API + path, opts);
+    var ctl = window.AbortController ? new AbortController() : null, t = null, ext = opts.signal;
+    if (ctl) {
+      opts.signal = ctl.signal; t = setTimeout(function () { ctl.abort(); }, ms || 25000);
+      if (ext) { if (ext.aborted) ctl.abort(); else ext.addEventListener('abort', function () { ctl.abort(); }); }
+    }
+    return fetch(API + path, opts).then(function (r) { clearTimeout(t); return r; },
+                                        function (e) { clearTimeout(t); throw e; });
   }
-  function api(path, opts) {
-    return raw(path, opts).then(function (r) {
+  var relocating = null;
+  function relocate() {
+    if (!REPO) return Promise.resolve(false);
+    if (!relocating) {
+      relocating = fetch('https://api.github.com/repos/' + REPO.owner + '/' + REPO.repo + '/contents/api.json',
+                         { cache: 'no-store', headers: { Accept: 'application/vnd.github.raw+json' } })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) {
+          var u = j && j.api;
+          if (!okApi(u) || u === API) return false;
+          API = u;
+          try { var q = new URLSearchParams(location.search); q.set('api', u);
+                history.replaceState(null, '', location.pathname + '?' + q.toString() + location.hash); } catch (e) {}
+          toast('Адрес ноутбука сменился — переподключился');
+          return true;
+        })
+        .catch(function () { return false; })
+        .then(function (v) { setTimeout(function () { relocating = null; }, 3000); return v; });
+    }
+    return relocating;
+  }
+  // запрос с поиском нового адреса, если старый перестал отвечать
+  function rawRetry(path, opts, ms) {
+    return raw(path, opts, ms).then(function (r) {
+      // туннель жив, но адрес уже чужой/пустой (страница Pinggy вместо нашего сервера)
+      var ct = r.headers.get('Content-Type') || '';
+      if (!r.ok && r.status !== 401 && r.status !== 403 && /text\/html/.test(ct)) {
+        return relocate().then(function (ch) { return ch ? raw(path, opts, ms) : r; });
+      }
+      return r;
+    }, function (e) {
+      if (!isNetErr(e) || (opts && opts.signal && opts.signal.aborted)) throw e;
+      return relocate().then(function (ch) { if (ch) return raw(path, opts, ms); throw e; });
+    });
+  }
+  function api(path, opts, ms) {
+    return rawRetry(path, opts, ms).then(function (r) {
       if (!r.ok) return r.text().then(function (t) { var e = new Error(t || ('Ошибка ' + r.status)); e.status = r.status; throw e; });
       return r.json();
     });
   }
-  function post(path, body) {
-    return api(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}) });
+  function post(path, body, signal) {
+    return api(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body || {}), signal: signal });
   }
-  function isNetErr(e) { return e instanceof TypeError || /Failed to fetch|NetworkError|Load failed/i.test(e && e.message || ''); }
+  function isNetErr(e) {
+    return !!e && (e.name === 'AbortError' || e instanceof TypeError || /Failed to fetch|NetworkError|Load failed|aborted/i.test(e.message || ''));
+  }
 
   // ---------- состояние ----------
   var S = { me: null, chats: [], key: null, title: '', msgs: [], seq: 0, busy: false, steps: [], live: '', started: 0,
-            polling: false, sending: false, fails: 0, openSteps: false, stick: true };
+            polling: false, sending: false, fails: 0, openSteps: false, stick: true, stopping: false };
+  var sendCtl = null;
   var feed = $('#feed'), input = $('#input'), sendBtn = $('#b-send');
   var DESKTOP = tg && /^(tdesktop|macos|web|weba|webk|unigram)$/.test(tg.platform || '');
 
@@ -84,7 +128,12 @@
     retry: '<svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 0114-5.3L20 9"/><path d="M20 4v5h-5"/><path d="M20 12a8 8 0 01-14 5.3L4 15"/><path d="M4 20v-5h5"/></svg>',
     chev: '<svg class="chev" viewBox="0 0 24 24"><path d="M9 6l6 6-6 6"/></svg>',
     send: '<svg viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></svg>',
-    stop: '<svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>'
+    stop: '<svg viewBox="0 0 24 24"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>',
+    pin: '<svg viewBox="0 0 24 24"><path d="M9 4h6l-1 6 4 4H6l4-4z"/><path d="M12 14v6"/></svg>',
+    pinOn: '<svg class="pin" viewBox="0 0 24 24"><path d="M9 4h6l-1 6 4 4H6l4-4zM11.2 14h1.6v6h-1.6z"/></svg>',
+    edit: '<svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M14 6l4 4"/></svg>',
+    move: '<svg viewBox="0 0 24 24"><path d="M6 4h12M5 7h14"/><rect x="4" y="10" width="16" height="10" rx="2"/></svg>',
+    trash: '<svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6"/><path d="M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>'
   };
 
   // ---------- боковое меню ----------
@@ -96,11 +145,14 @@
   function renderChats() {
     var box = $('#chatlist');
     if (!S.chats.length) { box.innerHTML = '<div class="dr-empty">Чатов пока нет. Напиши что-нибудь — чат появится здесь.</div>'; return; }
-    box.innerHTML = '<div class="dr-sec">Недавние</div>' + S.chats.map(function (c) {
+    function item(c) {
       return '<button type="button" class="ci' + (c.key === S.key ? ' on' : '') + '" data-key="' + esc(c.key) + '">' + I.chat +
         '<span class="t">' + esc(c.title) + '</span>' + (c.src === 'tg' ? '<span class="tag">TG</span>' : '') +
         (c.busy ? '<span class="dot"></span>' : '') + '</button>';
-    }).join('');
+    }
+    var pinned = S.chats.filter(function (c) { return c.pinned; }), rest = S.chats.filter(function (c) { return !c.pinned; });
+    box.innerHTML = (pinned.length ? '<div class="dr-sec">Закреплённые</div>' + pinned.map(item).join('') : '') +
+      (rest.length ? '<div class="dr-sec">Недавние</div>' + rest.map(item).join('') : '');
   }
   function loadChats() {
     return api('/api/chats').then(function (r) { S.chats = r.chats || []; renderChats(); }).catch(function () {});
@@ -110,7 +162,7 @@
   var imgCache = {};
   function fileUrl(key, name) {
     var k = key + '/' + name;
-    if (!imgCache[k]) imgCache[k] = raw('/api/chats/' + encodeURIComponent(key) + '/file?name=' + encodeURIComponent(name))
+    if (!imgCache[k]) imgCache[k] = rawRetry('/api/chats/' + encodeURIComponent(key) + '/file?name=' + encodeURIComponent(name))
       .then(function (r) { if (!r.ok) throw new Error(); return r.blob(); }).then(function (b) { return URL.createObjectURL(b); });
     return imgCache[k];
   }
@@ -160,7 +212,7 @@
       if (live || !b.closed) { w.innerHTML = '<div class="wait">🎨 Рисую…</div>'; return; }
       if (b.kind === 'smiles') {
         w.innerHTML = '<div class="wait">🧪 Рисую формулу…</div>';
-        raw('/api/render', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'smiles', code: b.code }) })
+        rawRetry('/api/render', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'smiles', code: b.code }) })
           .then(function (r) { if (!r.ok) throw new Error(); return r.blob(); })
           .then(function (bl) { w.innerHTML = '<img class="pic" alt="Структурная формула">'; w.firstChild.src = URL.createObjectURL(bl); })
           .catch(function () { w.innerHTML = '<div class="code"><div class="code-h"><span>smiles</span></div><pre><code>' + esc(b.code) + '</code></pre></div>'; });
@@ -241,7 +293,7 @@
     var th = n.querySelector('.thinking');
     th.classList.toggle('open', S.openSteps);
     var last = S.steps.length ? S.steps[S.steps.length - 1] : '';
-    th.querySelector('.t').textContent = (S.live ? 'Пишу' : 'Думаю') + '… ' + fmtTime((Date.now() - S.started) / 1000) +
+    th.querySelector('.t').textContent = (S.stopping ? 'Останавливаю' : S.live ? 'Пишу' : 'Думаю') + '… ' + fmtTime((Date.now() - S.started) / 1000) +
       (last && !S.live ? ' · ' + last.replace(/^\S+\s/, '') : '');
     n.querySelector('.steps').innerHTML = S.steps.map(function (s) { return '<li>' + esc(s) + '</li>'; }).join('');
     var md = n.querySelector('.md');
@@ -257,10 +309,11 @@
 
   function setTitle() { $('#title').textContent = S.key ? (S.title || 'Новый чат') : ''; }
   function setBusyUI() {
-    sendBtn.classList.toggle('stop', S.busy && !input.value.trim());
+    sendBtn.classList.toggle('stop', (S.busy || S.sending) && !input.value.trim());
     sendBtn.innerHTML = sendBtn.classList.contains('stop') ? I.stop : I.send;
     sendBtn.setAttribute('aria-label', sendBtn.classList.contains('stop') ? 'Остановить' : 'Отправить');
-    sendBtn.disabled = S.sending || (!sendBtn.classList.contains('stop') && !input.value.trim());
+    var isStop = sendBtn.classList.contains('stop');
+    sendBtn.disabled = isStop ? S.stopping : (S.sending || !input.value.trim());
   }
 
   // ---------- открыть чат / новый чат ----------
@@ -307,8 +360,10 @@
     S.msgs.push({ id: 'tmp' + Date.now(), role: 'user', text: text, files: [] });
     S.busy = true; S.steps = []; S.live = ''; S.started = Date.now(); S.openSteps = false;
     renderFeed(); setBusyUI(); toBottom(true);
-    post('/api/send', { key: S.key, text: text }).then(function (r) {
-      S.sending = false;
+    var cid = Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    sendCtl = window.AbortController ? new AbortController() : null;
+    post('/api/send', { key: S.key, text: text, cid: cid }, sendCtl && sendCtl.signal).then(function (r) {
+      S.sending = false; sendCtl = null;
       if (!r.ok) {
         S.busy = false; S.msgs.pop(); renderFeed(); setBusyUI(); toast(r.error || 'Не отправилось', 4000);
         if (textArg == null && !input.value) { input.value = text; autosize(); }
@@ -318,9 +373,12 @@
       poll();
       setBusyUI();
     }).catch(function (e) {
-      S.sending = false; S.busy = false; S.msgs.pop(); renderFeed(); setBusyUI();
+      var cancelled = sendCtl && sendCtl.signal.aborted;
+      S.sending = false; S.busy = false; S.stopping = false; sendCtl = null; S.msgs.pop();
+      if (wasNew && !S.key) renderHome(); else renderFeed();
       if (textArg == null && !input.value) { input.value = text; autosize(); }
-      toast(isNetErr(e) ? 'Ноутбук не отвечает — сообщение не ушло' : e.message, 4000);
+      setBusyUI();
+      toast(cancelled ? 'Отменено' : isNetErr(e) ? 'Ноутбук не отвечает — сообщение не ушло' : e.message, 4000);
     });
   }
 
@@ -329,7 +387,7 @@
     else if (ev.t === 'queued') { S.steps.push('📥 В очереди — жду предыдущий ответ'); }
     else if (ev.t === 'step') { S.steps.push(ev.text); }
     else if (ev.t === 'delta') { S.live = ev.text; }
-    else if (ev.t === 'done') { S.busy = false; S.live = ''; S.steps = []; haptic('medium'); reloadMessages(); loadChats(); }
+    else if (ev.t === 'done') { S.busy = false; S.stopping = false; S.live = ''; S.steps = []; haptic('medium'); reloadMessages(); loadChats(); }
     else if (ev.t === 'title') { S.title = ev.text; setTitle(); loadChats(); }
   }
 
@@ -339,7 +397,7 @@
     var key = S.key;
     (function loop() {
       if (S.key !== key) { S.polling = false; return; }
-      api('/api/chats/' + encodeURIComponent(key) + '/events?after=' + S.seq + '&wait=20').then(function (r) {
+      api('/api/chats/' + encodeURIComponent(key) + '/events?after=' + S.seq + '&wait=20', null, 40000).then(function (r) {
         if (S.key !== key) { S.polling = false; return; }
         if (S.fails) { S.fails = 0; setNet(''); }
         var stick = nearBottom();
@@ -351,7 +409,7 @@
         if (S.busy || r.busy) loop(); else S.polling = false;
       }).catch(function (e) {
         S.fails++;
-        if (S.fails >= 6) setNet('Нет связи с ноутбуком. Если бот перезапускался — закрой приложение и открой кнопкой «Claude» заново.');
+        if (S.fails >= 6) setNet('Нет связи с ноутбуком. Проверь, что бот на ноутбуке запущен — переподключусь сам.');
         else if (S.fails >= 2) setNet('Связь пропала, пробую снова…');
         setTimeout(loop, Math.min(1500 * S.fails, 6000));
       });
@@ -359,10 +417,96 @@
   }
 
   function stopRun() {
-    if (!S.key) return;
     haptic('rigid');
-    post('/api/chats/' + encodeURIComponent(S.key) + '/stop').catch(function () {});
+    if (S.sending && sendCtl) { sendCtl.abort(); return; }      // сообщение ещё не дошло — просто отменяем
+    if (!S.key) { S.busy = false; renderFeed(); setBusyUI(); return; }
+    S.stopping = true; renderLive(); setBusyUI();
+    var key = S.key;
+    post('/api/chats/' + encodeURIComponent(key) + '/stop').then(function (r) {
+      if (!r.ok && S.key === key) {                              // на ноутбуке уже ничего не идёт
+        S.stopping = false; S.busy = false; reloadMessages();
+      }
+    }).catch(function () { S.stopping = false; setBusyUI(); renderLive(); toast('Не смог остановить — нет связи с ноутбуком'); });
   }
+
+  // ---------- меню чата: долгое нажатие или правая кнопка ----------
+  function sheet(title, html) {
+    var sh = $('#sheet');
+    sh.querySelector('.sheet-title').textContent = title || '';
+    sh.querySelector('.sheet-body').innerHTML = html;
+    sh.hidden = false;
+    if (tg && tg.BackButton) tg.BackButton.show();
+  }
+  function closeSheet() {
+    $('#sheet').hidden = true;
+    if (tg && tg.BackButton && !document.getElementById('app').classList.contains('drawer-open')) tg.BackButton.hide();
+  }
+  function chatMenu(key) {
+    var c = S.chats.filter(function (x) { return x.key === key; })[0] || { key: key, title: S.title };
+    haptic('medium');
+    sheet(c.title, '<button type="button" class="sh-item" data-menu="pin" data-key="' + esc(key) + '">' + I.pin +
+      (c.pinned ? 'Открепить' : 'Закрепить') + '</button>' +
+      '<button type="button" class="sh-item" data-menu="rename" data-key="' + esc(key) + '">' + I.edit + 'Переименовать</button>' +
+      '<button type="button" class="sh-item" disabled>' + I.move + 'Переместить в проект<small>скоро</small></button>' +
+      '<button type="button" class="sh-item danger" data-menu="delete" data-key="' + esc(key) + '">' + I.trash + 'Удалить</button>');
+  }
+  function confirmAsk(text, cb) {
+    if (tg && tg.showConfirm) { try { tg.showConfirm(text, cb); return; } catch (e) {} }
+    cb(window.confirm(text));
+  }
+  function menuAction(act, key) {
+    var c = S.chats.filter(function (x) { return x.key === key; })[0] || { title: S.title };
+    var path = '/api/chats/' + encodeURIComponent(key);
+    if (act === 'pin') {
+      closeSheet();
+      post(path + '/pin', { on: !c.pinned }).then(function () { toast(c.pinned ? 'Откреплён' : 'Закреплён'); loadChats(); })
+        .catch(function (e) { toast(e.message); });
+    } else if (act === 'rename') {
+      sheet('Новое название', '<input class="sh-input" id="rn" maxlength="60" value="' + esc(c.title || '') + '">' +
+        '<div class="sh-row"><button type="button" class="sh-btn" data-menu="cancel">Отмена</button>' +
+        '<button type="button" class="sh-btn main" data-menu="rename-ok" data-key="' + esc(key) + '">Сохранить</button></div>');
+      var inp = $('#rn'); inp.focus(); inp.select();
+      inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') menuAction('rename-ok', key); });
+    } else if (act === 'rename-ok') {
+      var title = ($('#rn') || {}).value || '';
+      if (!title.trim()) return;
+      closeSheet();
+      post(path + '/rename', { title: title }).then(function (r) {
+        if (S.key === key) { S.title = r.title; setTitle(); }
+        loadChats(); toast('Переименовал');
+      }).catch(function (e) { toast(e.message); });
+    } else if (act === 'delete') {
+      closeSheet();
+      confirmAsk('Удалить чат «' + (c.title || 'без названия') + '»?' + (c.src === 'tg' ? ' Тема в Telegram тоже удалится.' : '') +
+        ' Папка с историей 30 дней полежит в корзине на ноутбуке.', function (yes) {
+        if (!yes) return;
+        post(path + '/delete').then(function (r) {
+          if (S.key === key) newChat();
+          loadChats(); toast(r.note || 'Удалён', r.note ? 5000 : 2000);
+        }).catch(function (e) { toast(e.message); });
+      });
+    } else if (act === 'cancel') closeSheet();
+  }
+  var press = null, suppressUntil = 0, lastTouch = 0;
+  document.addEventListener('touchstart', function (e) {
+    lastTouch = Date.now();
+    var ci = e.target.closest('.ci[data-key]'); if (!ci) return;
+    var tch = e.touches[0];
+    press = { x: tch.clientX, y: tch.clientY, t: setTimeout(function () { suppressUntil = Date.now() + 800; press = null; chatMenu(ci.getAttribute('data-key')); }, 480) };
+  }, { passive: true });
+  document.addEventListener('touchmove', function (e) {
+    if (!press) return;
+    var tch = e.touches[0];
+    if (Math.abs(tch.clientX - press.x) > 10 || Math.abs(tch.clientY - press.y) > 10) { clearTimeout(press.t); press = null; }
+  }, { passive: true });
+  document.addEventListener('touchend', function () { if (press) { clearTimeout(press.t); press = null; } }, { passive: true });
+  document.addEventListener('contextmenu', function (e) {
+    var ci = e.target.closest('.ci[data-key]');
+    if (!ci) return;
+    e.preventDefault();
+    if (Date.now() - lastTouch < 1500) suppressUntil = Date.now() + 800;   // долгое нажатие пальцем, а не правая кнопка мыши
+    if ($('#sheet').hidden) chatMenu(ci.getAttribute('data-key'));
+  });
 
   // ---------- поле ввода ----------
   function autosize() {
@@ -390,6 +534,10 @@
   }
   document.addEventListener('click', function (e) {
     var t = e.target;
+    if (Date.now() < suppressUntil) { suppressUntil = 0; e.preventDefault(); return; }   // палец отпустили после долгого нажатия
+    var mi = t.closest('[data-menu]'); if (mi) { menuAction(mi.getAttribute('data-menu'), mi.getAttribute('data-key')); return; }
+    if (t.closest('#sheet') && !t.closest('.sheet-card')) { closeSheet(); return; }
+    if (t.closest('#title') && S.key) { chatMenu(S.key); return; }
     var a = t.closest('a[data-ext]');
     if (a) { e.preventDefault(); if (tg && tg.openLink) tg.openLink(a.href); else window.open(a.href, '_blank'); return; }
     if (t.closest('#b-menu')) return openDrawer(true);
@@ -424,7 +572,7 @@
     tg.ready(); tg.expand(); applyTheme();
     tg.onEvent('themeChanged', applyTheme);
     if (tg.disableVerticalSwipes) try { tg.disableVerticalSwipes(); } catch (e) {}
-    if (tg.BackButton) tg.BackButton.onClick(function () { openDrawer(false); });
+    if (tg.BackButton) tg.BackButton.onClick(function () { if (!$('#sheet').hidden) closeSheet(); else openDrawer(false); });
   }
   if (!tg || !tg.initData) return fatal('Открой это приложение кнопкой «Claude» в боте Telegram.');
   if (ON_PAGES && !API) return fatal('Не знаю адрес ноутбука. Открой приложение кнопкой «Claude» в боте.');
