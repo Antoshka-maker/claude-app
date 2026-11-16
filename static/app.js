@@ -922,7 +922,8 @@
     var u = r.user || {};
     S.me = { name: (u.tg && u.tg.first_name) || u.name || '', uid: u.uid, owner: u.is_owner };
     $('#me-av').textContent = (S.me.name || '?').charAt(0).toUpperCase();
-    return api('/api/config').then(function (c) { CFG = c; S.settings = Object.assign({}, c.defaults); updateChip(); })
+    return api('/api/config').then(function (c) { CFG = c; S.settings = Object.assign({}, c.defaults); updateChip();
+        if (c.tg && !c.tg.ready && c.tg.uptime > 90) setTimeout(function () { toast('Telegram сейчас недоступен с ноутбука: приложение работает, но уведомлений в Telegram не будет', 6000); }, 1500); })
       .catch(function () {}).then(function () { return r; });
   }).then(function () {
     loadChats();
