@@ -30,12 +30,30 @@
   function relocate() {
     if (!REPO) return Promise.resolve(false);
     if (!relocating) {
-      relocating = fetch('https://api.github.com/repos/' + REPO.owner + '/' + REPO.repo + '/contents/api.json',
-                         { cache: 'no-store', headers: { Accept: 'application/vnd.github.raw+json' } })
-        .then(function (r) { return r.ok ? r.json() : null; })
-        .then(function (j) {
-          var u = j && j.api;
-          if (!okApi(u) || u === API) return false;
+      // Адрес ноутбука лежит в api.json в трёх местах. У api.github.com есть лимит 60 запросов в час на IP,
+      // а все телефоны за одним прокси делят этот лимит, поэтому спрашиваем все три и проверяем кандидатов «пингом».
+      function getJson(u, h) {
+        return fetch(u, { cache: 'no-store', headers: h || {} }).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; });
+      }
+      function alive(u) {
+        var c = window.AbortController ? new AbortController() : null;
+        if (c) setTimeout(function () { c.abort(); }, 7000);
+        return fetch(u + '/api/ping', { headers: { 'X-Pinggy-No-Screen': '1' }, signal: c ? c.signal : undefined })
+          .then(function (r) { return r.ok; }).catch(function () { return false; });
+      }
+      var t = Date.now();
+      relocating = Promise.all([
+        getJson('api.json?t=' + t),
+        getJson('https://raw.githubusercontent.com/' + REPO.owner + '/' + REPO.repo + '/main/api.json?t=' + t),
+        getJson('https://api.github.com/repos/' + REPO.owner + '/' + REPO.repo + '/contents/api.json', { Accept: 'application/vnd.github.raw+json' })
+      ]).then(function (list) {
+        var cands = [];
+        list.forEach(function (j) { var u = j && j.api; if (okApi(u) && u !== API && cands.indexOf(u) < 0) cands.push(u); });
+        return cands.reduce(function (p, u) { return p.then(function (f) { return f || alive(u).then(function (ok) { return ok ? u : null; }); }); },
+                            Promise.resolve(null));
+      })
+        .then(function (u) {
+          if (!u) return false;
           API = u;
           try { var q = new URLSearchParams(location.search); q.set('api', u);
                 history.replaceState(null, '', location.pathname + '?' + q.toString() + location.hash); } catch (e) {}
@@ -928,9 +946,9 @@
     } };
 
   // ---------- старт ----------
-  function fatal(msg) {
-    feed.innerHTML = '<div class="home">' + OCTO + '<div class="greet" style="font-size:24px">Не получилось</div>' +
-      '<div class="err">' + esc(msg) + '</div></div>';
+  function fatal(msg, searching) {
+    feed.innerHTML = '<div class="home">' + OCTO + '<div class="greet" style="font-size:24px">' + (searching ? 'Ищу ноутбук' : 'Не получилось') + '</div>' +
+      '<div class="err" style="white-space:pre-line">' + esc(msg) + '</div></div>';
     $('#composer').style.display = 'none';
   }
   if (tg) {
@@ -948,7 +966,10 @@
   if (!tg || !tg.initData) return fatal('Открой это приложение кнопкой «Claude» в боте Telegram.');
   if (ON_PAGES && !API) return fatal('Не знаю адрес ноутбука. Открой приложение кнопкой «Claude» в боте.');
 
+  var bootTry = 0;
+  function boot() {
   api('/api/me').then(function (r) {
+    $('#composer').style.display = '';
     var u = r.user || {};
     S.me = { name: (u.tg && u.tg.first_name) || u.name || '', uid: u.uid, owner: u.is_owner };
     $('#me-av').textContent = (S.me.name || '?').charAt(0).toUpperCase();
@@ -962,6 +983,11 @@
     if (want) openChat(want); else newChat();
     if (innerWidth >= 900) openDrawer(true);
   }).catch(function (e) {
-    fatal(isNetErr(e) ? 'Ноутбук не отвечает. Проверь, что бот запущен. Если бот перезапускался, закрой приложение и открой кнопкой «Claude» заново — адрес связи мог смениться.' : e.message);
+    if (!isNetErr(e)) return fatal(e.message);
+    bootTry++;
+    fatal('Ноутбук не отвечает — ищу его… (попытка ' + bootTry + ')\nЕсли долго не находится, проверь, что бот запущен на ноутбуке.', true);
+    if (bootTry < 40) setTimeout(function () { relocate().then(boot, boot); }, bootTry < 4 ? 2500 : 8000);
   });
+  }
+  boot();
 })();
