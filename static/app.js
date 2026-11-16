@@ -407,6 +407,63 @@
     }).join(''));
   }
 
+  // ---------- голосовой ввод: пишем WAV прямо в браузере, расшифровывает GigaAM на ноутбуке ----------
+  var REC = null;
+  var micBtn = $('#b-mic');
+  if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia && (window.AudioContext || window.webkitAudioContext)) micBtn.hidden = false;
+  function wav(chunks, rate) {
+    var n = 0; chunks.forEach(function (c) { n += c.length; });
+    var target = 16000, ratio = rate / target, len = Math.floor(n / ratio);
+    var all = new Float32Array(n), o = 0; chunks.forEach(function (c) { all.set(c, o); o += c.length; });
+    var buf = new ArrayBuffer(44 + len * 2), v = new DataView(buf);
+    function str(off, t) { for (var i = 0; i < t.length; i++) v.setUint8(off + i, t.charCodeAt(i)); }
+    str(0, 'RIFF'); v.setUint32(4, 36 + len * 2, true); str(8, 'WAVE'); str(12, 'fmt '); v.setUint32(16, 16, true);
+    v.setUint16(20, 1, true); v.setUint16(22, 1, true); v.setUint32(24, target, true); v.setUint32(28, target * 2, true);
+    v.setUint16(32, 2, true); v.setUint16(34, 16, true); str(36, 'data'); v.setUint32(40, len * 2, true);
+    for (var k = 0; k < len; k++) {          // простое усреднение при понижении частоты
+      var a = Math.floor(k * ratio), b = Math.min(n, Math.floor((k + 1) * ratio)), sum = 0;
+      for (var j = a; j < b; j++) sum += all[j];
+      var x = Math.max(-1, Math.min(1, b > a ? sum / (b - a) : all[a] || 0));
+      v.setInt16(44 + k * 2, x < 0 ? x * 0x8000 : x * 0x7FFF, true);
+    }
+    return new Blob([buf], { type: 'audio/wav' });
+  }
+  function startRec() {
+    navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } }).then(function (stream) {
+      var AC = window.AudioContext || window.webkitAudioContext, ctx = new AC();
+      var src = ctx.createMediaStreamSource(stream), node = ctx.createScriptProcessor(4096, 1, 1), chunks = [];
+      node.onaudioprocess = function (e) { chunks.push(new Float32Array(e.inputBuffer.getChannelData(0))); };
+      src.connect(node); node.connect(ctx.destination);
+      REC = { stream: stream, ctx: ctx, node: node, src: src, chunks: chunks, t0: Date.now(), ph: input.placeholder };
+      micBtn.classList.add('rec'); haptic('medium');
+      REC.timer = setInterval(function () {
+        var sec = Math.round((Date.now() - REC.t0) / 1000);
+        input.placeholder = 'Говорите… ' + fmtTime(sec) + ' — нажмите микрофон, чтобы закончить';
+        if (sec >= 180) stopRec();
+      }, 500);
+    }).catch(function () {
+      toast('Нет доступа к микрофону. Разреши Telegram микрофон в настройках телефона.', 5000);
+    });
+  }
+  function stopRec() {
+    var r = REC; if (!r) return; REC = null;
+    clearInterval(r.timer); micBtn.classList.remove('rec'); input.placeholder = r.ph;
+    try { r.node.disconnect(); r.src.disconnect(); r.stream.getTracks().forEach(function (t) { t.stop(); }); } catch (e) {}
+    var rate = r.ctx.sampleRate; try { r.ctx.close(); } catch (e) {}
+    if (Date.now() - r.t0 < 700) { toast('Слишком коротко'); return; }
+    var fd = new FormData(); fd.append('file', wav(r.chunks, rate), 'voice.wav');
+    var ph = input.placeholder; input.placeholder = 'Расшифровываю…'; micBtn.disabled = true;
+    rawRetry('/api/voice', { method: 'POST', body: fd }, 120000).then(function (res) {
+      if (!res.ok) return res.text().then(function (t) { throw new Error(t); });
+      return res.json();
+    }).then(function (j) {
+      if (!j.text) { toast('Не расслышал'); return; }
+      input.value = (input.value.trim() ? input.value.trim() + ' ' : '') + j.text; autosize(); input.focus();
+    }).catch(function (e) { toast(e.message || 'Не получилось расшифровать', 5000); })
+      .then(function () { input.placeholder = ph; micBtn.disabled = false; });
+  }
+  micBtn.addEventListener('click', function () { if (REC) stopRec(); else startRec(); });
+
   // ---------- вложения ----------
   function renderAtt() {
     var box = $('#attach');
