@@ -10,6 +10,8 @@
   var Q = new URLSearchParams(location.search);
   function okApi(a) { return /^https:\/\/[a-z0-9.-]+\.(pinggy-free\.link|pinggy\.link|pinggy\.online|trycloudflare\.com|tuna\.am)$/i.test(a || ''); }
   var API = okApi(Q.get('api')) ? Q.get('api') : '';
+  // запасные туннели к тому же ноутбуку: бот держит несколько сразу, приложение ходит через тот, что отвечает
+  var ALT = (Q.get('alt') || '').split(',').filter(function (u) { return okApi(u) && u !== API; });
   var ON_PAGES = /github\.io$/i.test(location.hostname);
   // репозиторий, где бот держит текущий адрес ноутбука (api.json) — на случай, если туннель сменил адрес
   var REPO = ON_PAGES ? { owner: location.hostname.split('.')[0],
@@ -26,40 +28,59 @@
     return fetch(API + path, opts).then(function (r) { clearTimeout(t); return r; },
                                         function (e) { clearTimeout(t); throw e; });
   }
+  function alive(u, ms) {
+    var c = window.AbortController ? new AbortController() : null;
+    if (c) setTimeout(function () { c.abort(); }, ms || 7000);
+    return fetch(u + '/api/ping', { headers: { 'X-Pinggy-No-Screen': '1' }, signal: c ? c.signal : undefined })
+      .then(function (r) { return r.ok; }).catch(function () { return false; });
+  }
+  // из списка адресов — первый ответивший (самый быстрый сейчас)
+  function fastest(list, ms) {
+    return new Promise(function (done) {
+      var left = list.length, won = false;
+      if (!left) return done(null);
+      list.forEach(function (u) {
+        alive(u, ms).then(function (ok) {
+          if (ok && !won) { won = true; done(u); }
+          if (--left === 0 && !won) done(null);
+        });
+      });
+    });
+  }
+  function useApi(u, quiet) {
+    if (!u || u === API) return;
+    var all = [API].concat(ALT).filter(function (x, i, arr) { return okApi(x) && arr.indexOf(x) === i; });
+    API = u; ALT = all.filter(function (x) { return x !== u; });
+    try { var q = new URLSearchParams(location.search); q.set('api', u); if (ALT.length) q.set('alt', ALT.join(',')); else q.delete('alt');
+          history.replaceState(null, '', location.pathname + '?' + q.toString() + location.hash); } catch (e) {}
+    if (!quiet) toast('Переключился на другой туннель к ноутбуку');
+  }
   var relocating = null;
   function relocate() {
-    if (!REPO) return Promise.resolve(false);
     if (!relocating) {
-      // Адрес ноутбука лежит в api.json в трёх местах. У api.github.com есть лимит 60 запросов в час на IP,
-      // а все телефоны за одним прокси делят этот лимит, поэтому спрашиваем все три и проверяем кандидатов «пингом».
+      // 1) сначала запасные туннели — это быстро и без GitHub;
+      // 2) потом адреса из api.json (три места: у api.github.com лимит 60 запросов в час на IP, телефоны за одним прокси его делят)
       function getJson(u, h) {
         return fetch(u, { cache: 'no-store', headers: h || {} }).then(function (r) { return r.ok ? r.json() : null; }).catch(function () { return null; });
       }
-      function alive(u) {
-        var c = window.AbortController ? new AbortController() : null;
-        if (c) setTimeout(function () { c.abort(); }, 7000);
-        return fetch(u + '/api/ping', { headers: { 'X-Pinggy-No-Screen': '1' }, signal: c ? c.signal : undefined })
-          .then(function (r) { return r.ok; }).catch(function () { return false; });
-      }
-      var t = Date.now();
-      relocating = Promise.all([
-        getJson('api.json?t=' + t),
-        getJson('https://raw.githubusercontent.com/' + REPO.owner + '/' + REPO.repo + '/main/api.json?t=' + t),
-        getJson('https://api.github.com/repos/' + REPO.owner + '/' + REPO.repo + '/contents/api.json', { Accept: 'application/vnd.github.raw+json' })
-      ]).then(function (list) {
-        var cands = [];
-        list.forEach(function (j) { var u = j && j.api; if (okApi(u) && u !== API && cands.indexOf(u) < 0) cands.push(u); });
-        return cands.reduce(function (p, u) { return p.then(function (f) { return f || alive(u).then(function (ok) { return ok ? u : null; }); }); },
-                            Promise.resolve(null));
+      relocating = fastest(ALT, 7000).then(function (u) {
+        if (u || !REPO) return u;
+        var t = Date.now();
+        return Promise.all([
+          getJson('api.json?t=' + t),
+          getJson('https://raw.githubusercontent.com/' + REPO.owner + '/' + REPO.repo + '/main/api.json?t=' + t),
+          getJson('https://api.github.com/repos/' + REPO.owner + '/' + REPO.repo + '/contents/api.json', { Accept: 'application/vnd.github.raw+json' })
+        ]).then(function (list) {
+          var cands = [];
+          list.forEach(function (j) {
+            if (!j) return;
+            [j.api].concat(j.apis || []).forEach(function (x) { if (okApi(x) && x !== API && cands.indexOf(x) < 0) cands.push(x); });
+          });
+          ALT = cands.slice();
+          return fastest(cands, 7000);
+        });
       })
-        .then(function (u) {
-          if (!u) return false;
-          API = u;
-          try { var q = new URLSearchParams(location.search); q.set('api', u);
-                history.replaceState(null, '', location.pathname + '?' + q.toString() + location.hash); } catch (e) {}
-          toast('Адрес ноутбука сменился — переподключился');
-          return true;
-        })
+        .then(function (u) { if (!u) return false; useApi(u); return true; })
         .catch(function () { return false; })
         .then(function (v) { setTimeout(function () { relocating = null; }, 3000); return v; });
     }
@@ -1026,9 +1047,10 @@
   if (!tg || !tg.initData) return fatal('Открой это приложение кнопкой «Claude» в боте Telegram.');
   if (ON_PAGES && !API) return fatal('Не знаю адрес ноутбука. Открой приложение кнопкой «Claude» в боте.');
 
-  var bootTry = 0;
+  var bootTry = 0, raced = false;
   function boot() {
-  api('/api/me').then(function (r) {
+  (ALT.length && !raced ? fastest([API].concat(ALT), 5000).then(function (u) { raced = true; if (u) useApi(u, true); }) : Promise.resolve())
+  .then(function () { return api('/api/me'); }).then(function (r) {
     $('#composer').style.display = '';
     var u = r.user || {};
     S.me = { name: (u.tg && u.tg.first_name) || u.name || '', uid: u.uid, owner: u.is_owner };
