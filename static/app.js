@@ -17,9 +17,15 @@
   var REPO = ON_PAGES ? { owner: location.hostname.split('.')[0],
     repo: location.pathname.split('/')[1] || location.hostname } : null;
 
+  // Режим для дороги, где провайдер режет соединение с зарубежным хостингом после ~16 КБ:
+  // сервер закрывает соединение после каждого ответа, и каждый запрос идёт по новому (у нового счёт с нуля).
+  // Помним полдня: если телефон сменит сеть или VPN, потом снова попробуем обычный режим.
+  var SMALL = false;
+  try { SMALL = Date.now() - (+localStorage.getItem('upSmall') || 0) < 12 * 3600 * 1000; } catch (e) {}
+  function setSmall(v) { SMALL = v; try { localStorage.setItem('upSmall', v ? String(Date.now()) : '0'); } catch (e) {} }
   function raw(path, opts, ms) {
     opts = Object.assign({}, opts || {});
-    opts.headers = Object.assign({ 'X-Init-Data': tg ? tg.initData : '', 'X-Pinggy-No-Screen': '1' }, opts.headers || {});
+    opts.headers = Object.assign({ 'X-Init-Data': tg ? tg.initData : '', 'X-Pinggy-No-Screen': '1' }, SMALL ? { 'X-Fresh': '1' } : {}, opts.headers || {});
     var ctl = window.AbortController ? new AbortController() : null, t = null, ext = opts.signal;
     if (ctl) {
       opts.signal = ctl.signal; t = setTimeout(function () { ctl.abort(); }, ms || 25000);
@@ -589,16 +595,19 @@
   }
   document.addEventListener('visibilitychange', function () { if (document.hidden && camClose) camClose(); });
 
-  // Загрузка кусками по 256 КБ. По плохой мобильной связи большой запрос «встаёт», а маленький проходит;
-  // застрявший кусок отправляем заново (со 2-й попытки — через другой туннель, если этот не отвечает).
-  var CHUNK = 256 * 1024;
-  function sendChunk(upid, i, n, blob, onProg) {
+  // Загрузка кусками. Обычно по 256 КБ. Если большие куски не доходят совсем (провайдер режет соединение
+  // с зарубежным хостингом после ~16 КБ), переходим на куски по 6 КБ: каждый идёт по новому соединению,
+  // в 4 потока. Это режим SMALL, телефон его запоминает.
+  var CHUNK = 256 * 1024, SMALL_CHUNK = 6 * 1024;
+  function sendChunk(upid, i, n, blob, small, onProg) {
     return new Promise(function (res, rej) {
-      var x = new XMLHttpRequest(), last = Date.now(), timer = null;
+      var x = new XMLHttpRequest(), last = Date.now(), timer = null, limit = small ? 8000 : 15000;
       function fail(kind, msg) { clearInterval(timer); var e = new Error(msg || kind); e.kind = kind; rej(e); }
-      x.open('POST', API + '/api/upload/chunk?id=' + upid + '&i=' + i + '&n=' + n);
+      x.open('POST', API + '/api/upload/chunk');
       x.setRequestHeader('X-Init-Data', tg ? tg.initData : '');
       x.setRequestHeader('X-Pinggy-No-Screen', '1');
+      x.setRequestHeader('X-Up', upid + ';' + i + ';' + n);
+      if (small) x.setRequestHeader('X-Fresh', '1');
       x.setRequestHeader('Content-Type', 'application/octet-stream');
       x.upload.onprogress = function (ev) { last = Date.now(); if (ev.lengthComputable) onProg(ev.loaded / ev.total); };
       x.onload = function () {
@@ -608,31 +617,107 @@
         fail('http', (x.responseText || ('ошибка ' + x.status)).slice(0, 120));
       };
       x.onerror = function () { fail('net'); };
-      timer = setInterval(function () { if (Date.now() - last > 15000) { x.abort(); fail('stall'); } }, 1500);
+      timer = setInterval(function () { if (Date.now() - last > limit) { x.abort(); fail('stall'); } }, 1000);
       x.send(blob);
     });
   }
-  function uploadOne(f, a) {
-    var n = Math.max(1, Math.ceil(f.size / CHUNK)), i = 0;
-    var upid = (Date.now().toString(36) + Math.random().toString(36).slice(2, 10)).replace(/[^a-z0-9]/g, '');
-    function pct(p) { p = Math.min(99, Math.max(0, Math.floor(p))); if (p !== a.pct) { a.pct = p; renderAtt(); } }
+  // фото в режиме SMALL ужимаем (до 2000 точек по длинной стороне): текст на снимке остаётся читаемым, а кусков в разы меньше
+  function shrink(f) {
+    if (!SMALL || !/^image\/(jpeg|png|webp|heic|heif)$/i.test(f.type) || f.size < 400 * 1024) return Promise.resolve(f);
+    return new Promise(function (res) {
+      var url = URL.createObjectURL(f), img = new Image(), done = false;
+      function out(x) { if (!done) { done = true; URL.revokeObjectURL(url); res(x); } }
+      setTimeout(function () { out(f); }, 8000);
+      img.onerror = function () { out(f); };
+      img.onload = function () {
+        try {
+          var k = Math.min(1, 2000 / Math.max(img.naturalWidth, img.naturalHeight));
+          var c = document.createElement('canvas');
+          c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+          c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+          c.toBlob(function (b) {
+            if (!b || b.size >= f.size) return out(f);
+            b.name = (f.name || 'фото').replace(/\.[^.]+$/, '') + '.jpg'; out(b);
+          }, 'image/jpeg', 0.85);
+        } catch (e) { out(f); }
+      };
+      img.src = url;
+    });
+  }
+  function newId() { return (Date.now().toString(36) + Math.random().toString(36).slice(2, 10)).replace(/[^a-z0-9]/g, ''); }
+  function uploadOne(f0, a) {
     a.pct = 0; a.retry = 0; renderAtt();
-    function next() {
-      if (i >= n) return post('/api/upload/finish', { id: upid, n: n, name: f.name || 'файл' });
-      var tries = 0, blob = f.slice(i * CHUNK, Math.min(f.size, (i + 1) * CHUNK));
-      function attempt() {
-        return sendChunk(upid, i, n, blob, function (fr) { pct((i + fr) / n * 100); }).catch(function (e) {
-          if (e.kind === 'http') throw e;
-          if (++tries > 6) { e.kind = 'stall'; throw e; }
-          a.retry = tries; renderAtt();
-          return new Promise(function (ok) { setTimeout(ok, Math.min(6000, 800 * tries)); })
-            .then(function () { return tries >= 2 ? relocate() : null; })
-            .then(attempt);
+    return shrink(f0).then(function (f) {
+      var name = f.name || f0.name || 'файл';
+      function pct(p) { p = Math.min(99, Math.max(0, Math.floor(p))); if (p !== a.pct) { a.pct = p; renderAtt(); } }
+      function run(small) {
+        var size = small ? SMALL_CHUNK : CHUNK, n = Math.max(1, Math.ceil(f.size / size)), upid = newId();
+        if (n > 8000) { var big = new Error('файл слишком большой для такой связи'); big.kind = 'http'; return Promise.reject(big); }
+        var next = 0, done = 0, okAny = false, failed = null, prog = {};
+        function show() {
+          var p = done; for (var k in prog) p += prog[k];
+          pct(p / n * 100);
+        }
+        function one(i) {
+          var tries = 0, blob = f.slice(i * size, Math.min(f.size, (i + 1) * size));
+          function attempt() {
+            return sendChunk(upid, i, n, blob, small, function (fr) { prog[i] = fr; show(); }).catch(function (e) {
+              prog[i] = 0;
+              if (e.kind === 'http') throw e;
+              // большие куски не прошли ни разу — значит, дорогу режут: переходим на мелкие
+              if (!small && !okAny && tries >= 1) { e.kind = 'switch'; throw e; }
+              if (++tries > (small ? 8 : 6)) { e.kind = 'stall'; throw e; }
+              a.retry = tries; renderAtt();
+              return new Promise(function (ok) { setTimeout(ok, Math.min(5000, (small ? 400 : 800) * tries)); })
+                .then(function () { return tries === 3 ? relocate() : null; })
+                .then(attempt);
+            });
+          }
+          return attempt().then(function () { okAny = true; delete prog[i]; done++; a.retry = 0; show(); });
+        }
+        function worker() {
+          if (failed || next >= n) return Promise.resolve();
+          var i = next++;
+          return one(i).then(worker, function (e) { failed = failed || e; throw e; });
+        }
+        var pool = [];
+        for (var w = 0; w < (small ? 4 : 1); w++) pool.push(worker());
+        return Promise.all(pool).then(function () {
+          return api('/api/upload/finish', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                             body: JSON.stringify({ id: upid, n: n, name: name }) }, 20000);
         });
       }
-      return attempt().then(function () { i++; a.retry = 0; pct(i / n * 100); return next(); });
+      return run(SMALL).catch(function (e) {
+        if (e.kind !== 'switch') throw e;
+        setSmall(true); a.pct = 0; a.retry = 0; renderAtt();
+        toast('Связь режет крупные куски — шлю мелкими, это чуть дольше', 4000);
+        return shrink(f0).then(function (g) { f = g; name = f.name || f0.name || 'файл'; return run(true); });
+      });
+    }).catch(function (e) { probe(e); throw e; });
+  }
+  // если загрузка всё-таки не удалась — один раз меряем, какие объёмы проходят, и пишем в журнал ноутбука
+  var probed = false;
+  function probe(err) {
+    if (probed || err.kind === 'http') return;
+    probed = true;
+    function t(path, opts) {
+      var t0 = Date.now();
+      return raw(path, Object.assign({ headers: { 'X-Fresh': '1' } }, opts || {}), 10000)
+        .then(function (r) { return r.arrayBuffer().then(function (b) { return r.status + ':' + b.byteLength + ':' + (Date.now() - t0) + 'мс'; }); })
+        .catch(function (e) { return 'нет:' + (Date.now() - t0) + 'мс'; });
     }
-    return next();
+    var out = { ошибка: err.kind, режим: SMALL ? 'мелкие' : 'обычные', туннель: API.replace(/^https:\/\/([a-z0-9]+).*$/, '$1'),
+                сеть: (navigator.connection && navigator.connection.effectiveType) || '?' };
+    var steps = [['вниз 4К', '/api/diag/down?n=4096'], ['вниз 12К', '/api/diag/down?n=12288'], ['вниз 40К', '/api/diag/down?n=40960'],
+                 ['вверх 4К', '/api/diag/up', 4096], ['вверх 12К', '/api/diag/up', 12288], ['вверх 40К', '/api/diag/up', 40960]];
+    steps.reduce(function (p, st) {
+      return p.then(function () {
+        return t(st[1], st[2] ? { method: 'POST', body: new Uint8Array(st[2]) } : null).then(function (v) { out[st[0]] = v; });
+      });
+    }, Promise.resolve()).then(function () {
+      return raw('/api/diag/report', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Fresh': '1' },
+                                       body: JSON.stringify(out) }, 15000);
+    }).catch(function () {});
   }
   function addFiles(list) {
     Array.prototype.forEach.call(list || [], function (f) {
@@ -647,7 +732,7 @@
       }).then(function (j) { a.id = j.id; a.state = 'ok'; renderAtt(); })
         .catch(function (e) {
           a.state = 'bad'; renderAtt();
-          var why = e.kind === 'stall' ? 'связь до ноутбука рвётся (дошло ' + (a.pct || 0) + '%, каждый кусок пробовал 6 раз). Попробуй ещё раз'
+          var why = e.kind === 'stall' ? 'связь до ноутбука рвётся (дошло ' + (a.pct || 0) + '%). Попробуй ещё раз'
             : e.kind === 'net' ? 'нет связи с ноутбуком' : (e.message || 'ошибка');
           toast('Не загрузилось «' + a.name + '»: ' + why, 7000);
         });
