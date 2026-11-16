@@ -5,13 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <meta name="color-scheme" content="dark light">
 <title>Claude</title>
-<link rel="stylesheet" href="static/app.css?v=eb6fc8ec">
+<link rel="stylesheet" href="static/app.css?v=24f236dd">
 <script src="static/telegram-web-app.js?v=2eebd494"></script>
 </head>
 <body>
 <div id="app">
   <aside id="drawer" aria-label="Чаты">
-    <div class="dr-head"><span class="dr-logo">Claude</span></div>
+    <div class="dr-head"><span class="dr-logo">Claude</span>
+      <button type="button" class="ib" id="b-search" aria-label="Поиск по чатам"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></button></div>
+    <div id="searchbar" hidden><input id="q" type="search" placeholder="Поиск по чатам" autocomplete="off"><button type="button" id="q-x" aria-label="Закрыть поиск">✕</button></div>
     <nav id="chatlist"></nav>
     <div class="dr-foot">
       <div class="avatar" id="me-av" title="Аккаунт">?</div>
@@ -23,22 +25,37 @@
     <header id="top">
       <button type="button" class="ib" id="b-menu" aria-label="Чаты"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18M3 12h13M3 18h9"/></svg></button>
       <div id="title"></div>
+      <button type="button" class="ib" id="b-ghost" aria-label="Чат-инкогнито" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V11a7 7 0 0114 0v9l-2.3-1.6L14.3 20 12 18.4 9.7 20l-2.4-1.6z"/><circle cx="9.5" cy="11" r="1"/><circle cx="14.5" cy="11" r="1"/></svg></button>
       <button type="button" class="ib" id="b-new" aria-label="Новый чат"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4H5a1 1 0 00-1 1v14a1 1 0 001 1h14a1 1 0 001-1v-7"/><path d="M17.5 3.5a2.1 2.1 0 013 3L13 14l-4 1 1-4z"/></svg></button>
     </header>
     <div id="net" hidden></div>
     <div id="feed"><div class="loading">Загружаю…</div></div>
     <div id="composer">
+      <div id="slash" hidden></div>
       <div class="box">
+        <div id="attach" hidden></div>
         <textarea id="input" rows="1" placeholder="Напишите Claude" aria-label="Сообщение"></textarea>
-        <button type="button" id="b-send" class="send" aria-label="Отправить" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
+        <div class="tools">
+          <button type="button" class="tb" id="b-plus" aria-label="Добавить"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+          <button type="button" class="mchip" id="b-model" aria-label="Модель и мощность"><span id="m-name">Opus 5.5</span><span class="eff" id="m-eff"></span></button>
+          <button type="button" class="mchip on" id="b-research" hidden aria-label="Выключить исследование"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M20 20l-4.2-4.2"/></svg></button>
+          <span class="grow"></span>
+          <button type="button" class="tb" id="b-mic" aria-label="Голосовой ввод" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0013 0M12 17.5V21"/></svg></button>
+          <button type="button" id="b-send" class="send" aria-label="Отправить" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 19V5M6 11l6-6 6 6"/></svg></button>
+        </div>
       </div>
+      <input type="file" id="f-any" multiple hidden>
+      <input type="file" id="f-photo" accept="image/*" multiple hidden>
+      <input type="file" id="f-cam" accept="image/*" capture="environment" hidden>
     </div>
   </section>
+  <section id="page" hidden><header class="pg-top"><button type="button" class="ib" id="pg-back" aria-label="Назад"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12H5M11 6l-6 6 6 6"/></svg></button><div class="pg-title"></div><div class="pg-act"></div></header><div class="pg-body"></div></section>
   <div id="sheet" hidden><div class="sheet-card" role="dialog"><div class="sheet-title"></div><div class="sheet-body"></div></div></div>
   <div id="viewer" hidden><img alt=""></div>
   <div id="toast" hidden></div>
 </div>
 <script src="static/md.js?v=97773727"></script>
-<script src="static/app.js?v=2328a35f"></script>
+<script src="static/app.js?v=f5ba097a"></script>
+<script src="static/pages.js?v=eb38516b"></script>
 </body>
 </html>

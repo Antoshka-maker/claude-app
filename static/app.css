@@ -32,7 +32,61 @@ a { color: var(--accent-text); text-decoration: underline; text-underline-offset
 #app.drawer-open #drawer { transform: none; box-shadow: 8px 0 30px rgba(0,0,0,.35); }
 #scrim { position: absolute; inset: 0; z-index: 25; background: rgba(0,0,0,.45); opacity: 0; pointer-events: none; transition: opacity .2s; }
 #app.drawer-open #scrim { opacity: 1; pointer-events: auto; }
-.dr-head { padding: 22px 20px 8px 24px; }
+.dr-head { padding: 18px 12px 6px 24px; display: flex; align-items: center; justify-content: space-between; }
+#searchbar { display: flex; gap: 6px; padding: 4px 12px 8px; }
+#q { flex: 1; min-width: 0; height: 42px; border-radius: 14px; border: 1px solid var(--line); background: var(--surface); color: var(--text);
+  padding: 0 14px; font-size: 16px; outline: none; }
+#q-x { width: 42px; border: 0; background: transparent; color: var(--text2); font-size: 18px; }
+.dr-nav { padding: 2px 0 4px; }
+.dr-nav .ci { padding: 11px 12px; font-size: 16.5px; color: var(--text3); }
+.dr-nav .ci .ico { stroke: var(--text3); }
+.dr-div { height: 1px; background: var(--line); margin: 6px 12px; }
+.ci .sub { display: block; font-size: 13px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ci .pdot { width: 10px; height: 10px; border-radius: 5px; flex-shrink: 0; }
+.ci mark { background: rgba(217,119,87,.35); color: inherit; border-radius: 3px; }
+#title .badge { font-size: 12px; font-weight: 500; color: var(--text2); border: 1px solid var(--line); border-radius: 8px; padding: 1px 7px; margin-left: 6px; vertical-align: 2px; }
+#app.incognito #main { box-shadow: inset 0 0 0 2px rgba(163,161,154,.25); }
+#b-ghost.on { background: var(--bubble); }
+/* меню «/» — скиллы */
+#slash { margin: 0 2px 6px; background: var(--sheet); border: 1px solid var(--line); border-radius: 18px; max-height: 40vh; overflow-y: auto; padding: 6px; }
+#slash button { display: block; width: 100%; text-align: left; border: 0; background: transparent; padding: 10px 12px; border-radius: 12px; color: var(--text); }
+#slash button:active, #slash button.on { background: var(--active); }
+#slash b { font-weight: 600; } #slash small { display: block; color: var(--text2); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* отдельные экраны: проекты, скиллы, память, лимиты, аккаунты */
+#page { position: absolute; inset: 0; z-index: 35; background: var(--bg); display: flex; flex-direction: column; }
+@media (min-width: 900px) { #page { left: 300px; } }
+.pg-top { display: flex; align-items: center; gap: 4px; padding: 6px 6px 2px; flex-shrink: 0; }
+.pg-title { flex: 1; min-width: 0; font-size: 18px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pg-act { display: flex; gap: 4px; }
+.pg-body { flex: 1; overflow-y: auto; padding: 8px max(16px, calc((100% - 760px) / 2)) calc(24px + env(safe-area-inset-bottom)); overscroll-behavior: contain; }
+.pg-h { font-family: var(--serif); font-size: 26px; font-weight: 500; margin: 6px 0 4px; }
+.pg-sub { color: var(--text2); font-size: 14.5px; margin: 0 0 14px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 14px; margin: 0 0 12px; }
+.card h3 { margin: 0 0 8px; font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+.card h3 .grow { flex: 1; }
+.card .muted { color: var(--text2); font-size: 14px; }
+.row-btn { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 4px; border: 0; border-bottom: 1px solid var(--line);
+  background: transparent; color: var(--text); text-align: left; font-size: 16px; }
+.row-btn:last-child { border-bottom: 0; }
+.row-btn .t { flex: 1; min-width: 0; } .row-btn .t small { display: block; color: var(--text2); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ta { width: 100%; min-height: 120px; resize: vertical; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); color: var(--text);
+  font: 15px/1.5 var(--sans); padding: 10px 12px; outline: none; }
+.ta:focus { border-color: var(--accent); }
+.ta.code { font-family: var(--mono); font-size: 13.5px; min-height: 50vh; }
+.btn { height: 44px; padding: 0 18px; border-radius: 14px; border: 0; background: var(--newchat-bg); color: var(--newchat-text); font-weight: 600; font-size: 15.5px; }
+.btn.sec { background: var(--bubble); color: var(--text); }
+.btn.danger { background: transparent; color: var(--danger); border: 1px solid var(--line); }
+.btn-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+.pcard { display: flex; gap: 12px; align-items: flex-start; width: 100%; text-align: left; border: 1px solid var(--line); background: var(--surface);
+  border-radius: 16px; padding: 14px; margin-bottom: 10px; color: var(--text); }
+.pcard .sq { width: 38px; height: 38px; border-radius: 10px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
+.pcard .sq svg { width: 20px; height: 20px; fill: none; stroke: #fff; stroke-width: 1.8; }
+.pcard .t { flex: 1; min-width: 0; } .pcard b { display: block; font-size: 16.5px; } .pcard small { color: var(--text2); font-size: 13.5px; }
+.meter { height: 10px; border-radius: 5px; background: var(--bubble); overflow: hidden; margin: 8px 0 4px; }
+.meter i { display: block; height: 100%; background: var(--accent); border-radius: 5px; }
+.meter.blue i { background: #2A78D6; } .meter.violet i { background: #8E7FE8; }
+.kv { display: flex; justify-content: space-between; gap: 10px; font-size: 14px; color: var(--text2); }
+.empty { color: var(--text2); text-align: center; padding: 30px 10px; }
 .dr-logo { font-family: var(--serif); font-size: 34px; font-weight: 500; }
 #chatlist { flex: 1; overflow-y: auto; padding: 4px 10px 100px; overscroll-behavior: contain; }
 .dr-sec { padding: 14px 12px 6px; font-size: 14px; font-weight: 600; color: var(--text2); }
@@ -137,12 +191,52 @@ a { color: var(--accent-text); text-decoration: underline; text-underline-offset
 
 /* поле ввода */
 #composer { flex-shrink: 0; padding: 6px max(10px, calc((100% - 780px) / 2)) calc(10px + env(safe-area-inset-bottom)); }
-.box { background: var(--surface); border: 1px solid var(--line); border-radius: 26px; padding: 7px 7px 7px 18px;
-  display: flex; align-items: flex-end; gap: 8px; }
-#input { flex: 1; min-width: 0; border: 0; outline: none; resize: none; background: transparent; font-size: 17px; line-height: 1.45;
-  padding: 9px 0; max-height: 40vh; color: var(--text); }
+.box { background: var(--surface); border: 1px solid var(--line); border-radius: 26px; padding: 10px 10px 10px 10px;
+  display: flex; flex-direction: column; gap: 8px; }
+#input { width: 100%; border: 0; outline: none; resize: none; background: transparent; font-size: 17px; line-height: 1.45;
+  padding: 4px 8px 0; max-height: 40vh; color: var(--text); display: block; }
+.tools { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.tools .grow { flex: 1; }
+.tb { width: 42px; height: 42px; border-radius: 21px; border: 0; background: var(--bubble); display: flex; align-items: center;
+  justify-content: center; flex-shrink: 0; }
+.tb svg { width: 21px; height: 21px; fill: none; stroke: var(--text); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.tb.rec { background: var(--danger); } .tb.rec svg { stroke: #fff; }
+.mchip { height: 42px; padding: 0 15px; border-radius: 21px; border: 0; background: var(--bubble); display: flex; align-items: center;
+  gap: 6px; font-size: 15px; white-space: nowrap; min-width: 0; overflow: hidden; color: var(--text); }
+.mchip .eff { color: var(--text2); overflow: hidden; text-overflow: ellipsis; }
+.mchip.on { background: rgba(217,119,87,.18); color: var(--accent-text); }
+#b-research { width: 42px; padding: 0; justify-content: center; flex-shrink: 0; }
+.mchip svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; flex-shrink: 0; }
+#attach { display: flex; gap: 8px; overflow-x: auto; padding: 2px 2px 0; }
+.att { position: relative; flex-shrink: 0; height: 64px; min-width: 64px; max-width: 180px; border-radius: 12px; background: var(--bubble);
+  border: 1px solid var(--line); display: flex; align-items: center; gap: 8px; padding: 0 28px 0 10px; font-size: 13px; color: var(--text3); }
+.att.img { padding: 0; width: 64px; overflow: hidden; }
+.att.img img { width: 100%; height: 100%; object-fit: cover; }
+.att .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 130px; }
+.att .x { position: absolute; top: 3px; right: 3px; width: 22px; height: 22px; border-radius: 11px; border: 0; background: rgba(0,0,0,.6);
+  color: #fff; font-size: 14px; line-height: 22px; padding: 0; }
+.att.up::after { content: ''; position: absolute; inset: 0; background: rgba(0,0,0,.45); border-radius: 12px; }
+.att.up .spin2 { position: absolute; z-index: 2; left: 50%; top: 50%; width: 20px; height: 20px; margin: -10px; border-radius: 50%;
+  border: 2px solid rgba(255,255,255,.35); border-top-color: #fff; animation: spin .9s linear infinite; }
+.att.bad { border-color: var(--danger); color: var(--danger); }
+/* листы выбора */
+.opt { display: flex; align-items: center; gap: 14px; width: 100%; padding: 13px 14px; border: 0; background: transparent; border-radius: 14px;
+  text-align: left; color: var(--text); }
+.opt:active { background: var(--active); }
+.opt .t1 { font-size: 17px; } .opt .t2 { font-size: 13.5px; color: var(--text2); }
+.opt .ck { margin-left: auto; width: 22px; height: 22px; fill: none; stroke: var(--accent); stroke-width: 2.4; flex-shrink: 0; }
+.seg { display: flex; gap: 6px; padding: 6px 4px 4px; }
+.seg button { flex: 1; min-width: 0; height: 40px; border-radius: 12px; border: 1px solid var(--line); background: transparent; color: var(--text2);
+  font-size: 13px; padding: 0 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.seg button.on { background: var(--newchat-bg); color: var(--newchat-text); border-color: transparent; font-weight: 600; }
+.sh-sep { height: 1px; background: var(--line); margin: 6px 10px; }
+.sh-lbl { padding: 10px 14px 2px; font-size: 13px; color: var(--text2); }
+.sw { margin-left: auto; width: 46px; height: 28px; border-radius: 14px; background: var(--line); position: relative; flex-shrink: 0; transition: background .15s; }
+.sw::after { content: ''; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 11px; background: #fff; transition: transform .15s; }
+.sw.on { background: #2A78D6; } .sw.on::after { transform: translateX(18px); }
+.sh-link { display: block; margin: 8px auto 0; border: 0; background: none; color: var(--accent-text); font-size: 14.5px; padding: 8px; }
 #input::placeholder { color: var(--text2); }
-.send { width: 44px; height: 44px; border-radius: 22px; border: 0; background: var(--accent); display: flex; align-items: center;
+.send { width: 42px; height: 42px; border-radius: 21px; border: 0; background: var(--accent); display: flex; align-items: center;
   justify-content: center; flex-shrink: 0; transition: opacity .15s; }
 .send svg { width: 21px; height: 21px; fill: none; stroke: var(--on-accent); stroke-width: 2.3; stroke-linecap: round; stroke-linejoin: round; }
 .send:disabled { opacity: .35; cursor: default; }
@@ -181,13 +275,14 @@ a { color: var(--accent-text); text-decoration: underline; text-underline-offset
   #feed { padding-left: 12px; padding-right: 12px; gap: 14px; }
   .md { font-size: 16.5px; } .bubble { font-size: 15.5px; padding: 9px 13px; }
   .greet { font-size: 26px; } .home .octo { width: 76px; height: 76px; }
-  .box { padding-left: 14px; } #input { font-size: 16px; }
-  .send { width: 40px; height: 40px; }
+  #input { font-size: 16px; }
+  .send, .tb { width: 38px; height: 38px; } .mchip { height: 38px; padding: 0 11px; font-size: 14px; } .mchip .eff { display: none; }
   .ib { width: 42px; height: 42px; }
 }
 @media (max-width: 299px) {
   .md { font-size: 15.5px; } .greet { font-size: 22px; } .m-user { max-width: 92%; }
   .newchat { padding: 0 14px; font-size: 15px; }
+  .tools { gap: 5px; } .mchip .lbl { display: none; }
 }
 /* низкий экран: телефон боком, открыта клавиатура */
 @media (max-height: 520px) {
